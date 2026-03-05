@@ -39,15 +39,10 @@ class ErrorBoundary extends Component {
   }
 }
 
-const LS  = "koviloor_payroll_v3";
-const ALS = "koviloor_auth_v2";
-const SLS = "koviloor_session_v2";
-const load  = ()=>{ try{const s=localStorage.getItem(LS);  return s?JSON.parse(s):null;}catch{return null;}};
-const save  = d=>{ try{localStorage.setItem(LS,JSON.stringify(d));}catch{}};
-const lAuth = ()=>{ try{const s=localStorage.getItem(ALS);return s?JSON.parse(s):{admin:"admin123",operator:"koviloor2024"};}catch{return{admin:"admin123",operator:"koviloor2024"};}};
-const sAuth = d=>{ try{localStorage.setItem(ALS,JSON.stringify(d));}catch{}};
-const lSess = ()=>{ try{return localStorage.getItem(SLS)||null;}catch{return null;}};
-const sSess = r=>{ try{r?localStorage.setItem(SLS,r):localStorage.removeItem(SLS);}catch{}};
+// Hardcoded passwords — same on ALL devices
+const PASSWORDS = { admin: "Andavar@07", operator: "Soma83" };
+const lSess = ()=>{ try{return localStorage.getItem("koviloor_sess")||null;}catch{return null;}};
+const sSess = r=>{ try{r?localStorage.setItem("koviloor_sess",r):localStorage.removeItem("koviloor_sess");}catch{}};
 
 const MONTHS=["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const dim=(y,m)=>new Date(y,m,0).getDate();
@@ -102,7 +97,6 @@ function AppInner(){
   const [nid,setNid]=useState(6);
   const [ndid,setNdid]=useState(4);
   const [toast,setToast]=useState("");
-  const [showPwd,setShowPwd]=useState(false);
   const [syncing,setSyncing]=useState(true);
   const importRef=useRef();
   const ignoreNext=useRef(false);
@@ -220,7 +214,6 @@ function AppInner(){
         <div style={{color:"rgba(255,255,255,0.8)",fontSize:12,fontFamily:"sans-serif"}}>Connecting to cloud...</div>
       </div>}
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.startsWith("✅")?T.success:T.danger,color:"white",padding:"10px 24px",borderRadius:8,fontWeight:700,fontSize:13,zIndex:9998,pointerEvents:"none",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>{toast}</div>}
-      {showPwd&&<PwdModal onClose={()=>setShowPwd(false)} showToast={showToast}/>}
       <input ref={importRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
 
       {/* ── Header ── */}
@@ -245,7 +238,6 @@ function AppInner(){
             <div style={{padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",fontSize:11,fontWeight:700,color:role==="admin"?T.saffronL:"#a5d8ff",fontFamily:"sans-serif"}}>
               {role==="admin"?"🔐 ADMIN":"👤 OPERATOR"}
             </div>
-            {role==="admin"&&<button onClick={()=>setShowPwd(true)} style={{...btn("rgba(255,255,255,0.08)","rgba(255,255,255,0.7)",true),border:"1px solid rgba(255,255,255,0.15)"}}>🔑</button>}
             <button onClick={doLogout} style={btn(T.danger,"white",true)}>⏏ Logout</button>
           </div>
         </div>
@@ -294,10 +286,9 @@ function LoginOverlay({onLogin}){
   const [user,setUser]=useState("");const [pass,setPass]=useState("");
   const [err,setErr]=useState("");const [showP,setShowP]=useState(false);const [which,setWhich]=useState(null);
   const go=()=>{
-    const c=lAuth();
     if(!user.trim()||!pass.trim()){setErr("Enter username and password.");return;}
-    if(user==="admin"&&pass===c.admin){onLogin("admin");return;}
-    if(user==="operator"&&pass===c.operator){onLogin("operator");return;}
+    if(user==="admin"&&pass===PASSWORDS.admin){onLogin("admin");return;}
+    if(user==="operator"&&pass===PASSWORDS.operator){onLogin("operator");return;}
     setErr("Incorrect username or password.");
   };
   return(
@@ -334,45 +325,7 @@ function LoginOverlay({onLogin}){
           </div>
           {err&&<div style={{background:"rgba(139,26,26,0.35)",borderRadius:6,padding:"8px 12px",color:"#ffaaaa",fontSize:12,fontWeight:600,marginBottom:14,textAlign:"center"}}>{err}</div>}
           <button onClick={go} style={{width:"100%",padding:12,borderRadius:8,border:"none",cursor:"pointer",background:`linear-gradient(90deg,${T.saffron},${T.saffronL})`,color:T.maroonD,fontWeight:800,fontSize:15,fontFamily:"Georgia,serif"}}>Sign In →</button>
-          <div style={{marginTop:14,fontSize:10,color:"rgba(255,255,255,0.3)",textAlign:"center",lineHeight:1.8,fontFamily:"sans-serif"}}>admin / admin123 · operator / koviloor2024</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ════════ PASSWORD MODAL ════════
-function PwdModal({onClose,showToast}){
-  const c=lAuth();
-  const [aNew,setANew]=useState("");const [aC,setAC]=useState("");
-  const [oNew,setONew]=useState("");const [oC,setOC]=useState("");const [err,setErr]=useState("");
-  const save=()=>{
-    if(aNew&&aNew!==aC){setErr("Admin passwords don't match.");return;}
-    if(oNew&&oNew!==oC){setErr("Operator passwords don't match.");return;}
-    if((aNew&&aNew.length<6)||(oNew&&oNew.length<6)){setErr("Minimum 6 characters.");return;}
-    if(!aNew&&!oNew){setErr("Enter at least one new password.");return;}
-    sAuth({admin:aNew||c.admin,operator:oNew||c.operator});
-    showToast("✅ Passwords updated");onClose();
-  };
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.7)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(3px)"}}>
-      <div style={{background:T.white,borderRadius:14,width:420,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.4)"}}>
-        <div style={{...sec,borderRadius:"14px 14px 0 0"}}><span>🔑 Change Passwords</span><button onClick={onClose} style={btn("rgba(255,255,255,0.15)")}>✕</button></div>
-        <div style={{padding:20}}>
-          {[["Admin 🔐",aNew,setANew,aC,setAC],["Operator 👤",oNew,setONew,oC,setOC]].map(([lbl,nv,setN,cv,setC])=>(
-            <div key={lbl} style={{marginBottom:16,padding:14,background:T.saffronPale,borderRadius:8,border:`1px solid ${T.border}`}}>
-              <div style={{fontWeight:700,color:T.maroon,marginBottom:10,fontSize:13}}>{lbl}</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                <div><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>NEW PASSWORD</label><input type="password" value={nv} onChange={e=>{setN(e.target.value);setErr("");}} placeholder="min 6 chars" style={inp()}/></div>
-                <div><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>CONFIRM</label><input type="password" value={cv} onChange={e=>{setC(e.target.value);setErr("");}} placeholder="repeat" style={{...inp(),borderColor:nv&&cv&&nv!==cv?T.danger:T.border}}/></div>
-              </div>
-            </div>
-          ))}
-          {err&&<div style={{background:"#fef0ef",borderRadius:6,padding:"8px 12px",color:T.danger,fontSize:12,marginBottom:12}}>{err}</div>}
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={onClose} style={btn("#e8d5b0",T.text)}>Cancel</button>
-            <button onClick={save} style={btn(T.maroon)}>💾 Save</button>
-          </div>
+          <div style={{marginTop:14,fontSize:10,color:"rgba(255,255,255,0.3)",textAlign:"center",lineHeight:1.8,fontFamily:"sans-serif"}}>Login with your assigned username and password</div>
         </div>
       </div>
     </div>
