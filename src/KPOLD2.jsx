@@ -1,26 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Component } from "react";
-
-// ── Error Boundary (catches mobile crashes) ──────────────────────
-class ErrorBoundary extends Component {
-  constructor(props){ super(props); this.state={error:null}; }
-  static getDerivedStateFromError(e){ return {error:e?.message||"Unknown error"}; }
-  render(){
-    if(this.state.error) return (
-      <div style={{padding:32,fontFamily:"Georgia,serif",background:"#fdf3e3",minHeight:"100vh",color:"#6b1a1a"}}>
-        <div style={{fontSize:40,marginBottom:16}}>🛕</div>
-        <div style={{fontWeight:700,fontSize:18,marginBottom:12}}>Koviloor Madalayam</div>
-        <div style={{background:"#fde8e8",border:"2px solid #8b1a1a",borderRadius:8,padding:16,fontSize:13,marginBottom:16}}>
-          <b>App Error:</b> {this.state.error}
-        </div>
-        <button onClick={()=>{ localStorage.clear(); window.location.reload(); }}
-          style={{padding:"10px 20px",background:"#6b1a1a",color:"white",border:"none",borderRadius:6,fontSize:14,cursor:"pointer",fontWeight:700}}>
-          🔄 Clear & Reload
-        </button>
-      </div>
-    );
-    return this.props.children;
-  }
-}
+import { useState, useMemo, useEffect, useRef } from "react";
 
 const LS  = "koviloor_payroll_v3";
 const ALS = "koviloor_auth_v2";
@@ -64,7 +42,7 @@ const INIT_EMPS=[
   {id:5,deptId:"d3",name:"Krishnan",rate:13000,bankName:"Krishnan",acc:"",ifsc:""},
 ];
 
-function AppInner(){
+export default function App(){
   const [role,setRole]=useState(()=>lSess());
   const doLogin=r=>{sSess(r);setRole(r);};
   const doLogout=()=>{sSess(null);setRole(null);};
@@ -220,10 +198,6 @@ function AppInner(){
       {!role&&<LoginOverlay onLogin={doLogin}/>}
     </div>
   );
-}
-
-export default function App(){
-  return <ErrorBoundary><AppInner/></ErrorBoundary>;
 }
 
 // ════════ LOGIN ════════
