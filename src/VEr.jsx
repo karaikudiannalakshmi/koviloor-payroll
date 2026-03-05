@@ -71,72 +71,33 @@ function AppInner(){
 
   const [tab,setTab]=useState("att");
   const [deptId,setDeptId]=useState(null);
-  const [year,setYear]=useState(new Date().getFullYear());
-  const [month,setMonth]=useState(new Date().getMonth()+1);
-  const [depts,setDepts]=useState(INIT_DEPTS);
-  const [emps,setEmps]=useState(INIT_EMPS);
-  const [att,setAtt]=useState({});
-  const [ot,setOt]=useState({});
-  const [adv,setAdv]=useState({});
-  const [loan,setLoan]=useState({});
-  const [pf,setPf]=useState({});
-  const [esi,setEsi]=useState({});
-  const [dbAcc,setDbAcc]=useState("");
-  const [nid,setNid]=useState(6);
-  const [ndid,setNdid]=useState(4);
+  const [year,setYear]=useState(()=>(load()||{}).year??new Date().getFullYear());
+  const [month,setMonth]=useState(()=>(load()||{}).month??new Date().getMonth()+1);
+  const [depts,setDepts]=useState(()=>(load()||{}).depts??INIT_DEPTS);
+  const [emps,setEmps]=useState(()=>(load()||{}).emps??INIT_EMPS);
+  const [att,setAtt]=useState(()=>(load()||{}).att??{});
+  const [ot,setOt]=useState(()=>(load()||{}).ot??{});
+  const [adv,setAdv]=useState(()=>(load()||{}).adv??{});
+  // loan[id] = { ob, given, ded }  →  balance = ob + given - ded
+  const [loan,setLoan]=useState(()=>(load()||{}).loan??{});
+  const [pf,setPf]=useState(()=>(load()||{}).pf??{});
+  const [esi,setEsi]=useState(()=>(load()||{}).esi??{});
+  const [dbAcc,setDbAcc]=useState(()=>(load()||{}).dbAcc??"");
+  const [nid,setNid]=useState(()=>(load()||{}).nid??6);
+  const [ndid,setNdid]=useState(()=>(load()||{}).ndid??4);
   const [toast,setToast]=useState("");
   const [showPwd,setShowPwd]=useState(false);
-  const [syncing,setSyncing]=useState(true);
   const importRef=useRef();
-  const ignoreNext=useRef(false);
 
   const activeDept=deptId||(depts[0]?.id||null);
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
-  // ── Subscribe to Firebase (real-time sync) ────────────────────
-  useEffect(()=>{
-    const unsub = onValue(dbRef("koviloor"), snap=>{
-      if(ignoreNext.current){ ignoreNext.current=false; return; }
-      const d=snap.val();
-      if(!d){ setSyncing(false); return; }
-      if(d.depts)setDepts(d.depts);
-      if(d.emps)setEmps(d.emps);
-      if(d.att)setAtt(d.att); else setAtt({});
-      if(d.ot)setOt(d.ot); else setOt({});
-      if(d.adv)setAdv(d.adv); else setAdv({});
-      if(d.loan)setLoan(d.loan); else setLoan({});
-      if(d.pf)setPf(d.pf); else setPf({});
-      if(d.esi)setEsi(d.esi); else setEsi({});
-      if(d.dbAcc!=null)setDbAcc(d.dbAcc);
-      if(d.nid)setNid(d.nid);
-      if(d.ndid)setNdid(d.ndid);
-      if(d.year)setYear(d.year);
-      if(d.month)setMonth(d.month);
-      setSyncing(false);
-    }, e=>{ console.error("Firebase error:",e); setSyncing(false); });
-    return ()=>unsub();
-  },[]);
-
-  // ── Write to Firebase on change ───────────────────────────────
-  const fbWrite=(path,val)=>{ ignoreNext.current=true; dbSet(path,val); };
-
-  const setDeptsF =v=>{ setDepts(v);  fbWrite("koviloor/depts",v); };
-  const setEmpsF  =v=>{ setEmps(v);   fbWrite("koviloor/emps",v); };
-  const setAttF   =v=>{ setAtt(v);    fbWrite("koviloor/att",v); };
-  const setOtF    =v=>{ setOt(v);     fbWrite("koviloor/ot",v); };
-  const setAdvF   =v=>{ setAdv(v);    fbWrite("koviloor/adv",v); };
-  const setLoanF  =v=>{ setLoan(v);   fbWrite("koviloor/loan",v); };
-  const setPfF    =v=>{ setPf(v);     fbWrite("koviloor/pf",v); };
-  const setEsiF   =v=>{ setEsi(v);    fbWrite("koviloor/esi",v); };
-  const setDbAccF =v=>{ setDbAcc(v);  fbWrite("koviloor/dbAcc",v); };
-  const setNidF   =v=>{ setNid(v);    fbWrite("koviloor/nid",v); };
-  const setNdidF  =v=>{ setNdid(v);   fbWrite("koviloor/ndid",v); };
-  const setYearF  =v=>{ setYear(v);   fbWrite("koviloor/year",v); };
-  const setMonthF =v=>{ setMonth(v);  fbWrite("koviloor/month",v); };
+  const sr=useRef();
+  sr.current={year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid};
+  useEffect(()=>{save(sr.current);},[year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid]);
 
   const exportData=()=>{
-    const d={year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid};
-    const b=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
+    const b=new Blob([JSON.stringify(sr.current,null,2)],{type:"application/json"});
     const a=document.createElement("a");a.href=URL.createObjectURL(b);
     a.download=`Koviloor_${MONTHS[month]}_${year}.json`;a.click();
     showToast("✅ Exported");
@@ -147,26 +108,24 @@ function AppInner(){
     r.onload=ev=>{
       try{
         const d=JSON.parse(ev.target.result);
-        dbSet("koviloor",{
-          depts:d.depts||depts, emps:d.emps||emps,
-          att:d.att||{}, ot:d.ot||{}, adv:d.adv||{},
-          loan:d.loan||{}, pf:d.pf||{}, esi:d.esi||{},
-          dbAcc:d.dbAcc||"", nid:d.nid||nid, ndid:d.ndid||ndid,
-          year:d.year||year, month:d.month||month,
-        });
-        showToast("✅ Imported — syncing...");
+        if(d.depts)setDepts(d.depts);if(d.emps)setEmps(d.emps);
+        if(d.att)setAtt(d.att);if(d.ot)setOt(d.ot);
+        if(d.adv)setAdv(d.adv);if(d.loan)setLoan(d.loan);
+        if(d.pf)setPf(d.pf);if(d.esi)setEsi(d.esi);
+        if(d.year)setYear(d.year);if(d.month)setMonth(d.month);
+        if(d.dbAcc)setDbAcc(d.dbAcc);if(d.nid)setNid(d.nid);if(d.ndid)setNdid(d.ndid);
+        showToast("✅ Imported");
       }catch{showToast("❌ Invalid file");}
     };
     r.readAsText(f);e.target.value="";
   };
 
-
   const nd=dim(year,month);
   const days=Array.from({length:nd},(_,i)=>i+1);
   const ga=(eid,d)=>{const v=att[`${eid}_${d}`];return v===undefined?null:v;};
-  const sa=(eid,d,v)=>setAttF(p=>({...p,[`${eid}_${d}`]:v}));
+  const sa=(eid,d,v)=>setAtt(p=>({...p,[`${eid}_${d}`]:v}));
   const got=(eid,d)=>ot[`${eid}_${d}`]??"";
-  const sot=(eid,d,v)=>setOtF(p=>({...p,[`${eid}_${d}`]:v}));
+  const sot=(eid,d,v)=>setOt(p=>({...p,[`${eid}_${d}`]:v}));
 
   const settle=useMemo(()=>emps.map(emp=>{
     const dr=emp.rate/26;let daysWorked=0;
@@ -197,11 +156,6 @@ function AppInner(){
 
   return(
     <div style={{fontFamily:"Georgia,serif",background:T.bg,minHeight:"100vh",fontSize:14}}>
-      {syncing&&<div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.6)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
-        <div style={{fontSize:40}}>🛕</div>
-        <div style={{color:"white",fontSize:15,fontWeight:700,fontFamily:"Georgia,serif"}}>Koviloor Madalayam</div>
-        <div style={{color:"rgba(255,255,255,0.8)",fontSize:12,fontFamily:"sans-serif"}}>Connecting to cloud...</div>
-      </div>}
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.startsWith("✅")?T.success:T.danger,color:"white",padding:"10px 24px",borderRadius:8,fontWeight:700,fontSize:13,zIndex:9998,pointerEvents:"none",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>{toast}</div>}
       {showPwd&&<PwdModal onClose={()=>setShowPwd(false)} showToast={showToast}/>}
       <input ref={importRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
@@ -216,10 +170,10 @@ function AppInner(){
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {role==="admin"&&<>
-              <select value={month} onChange={e=>setMonthF(+e.target.value)} style={{padding:"5px 10px",borderRadius:5,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              <select value={month} onChange={e=>setMonth(+e.target.value)} style={{padding:"5px 10px",borderRadius:5,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:13,fontWeight:600,cursor:"pointer"}}>
                 {MONTHS.slice(1).map((m,i)=><option key={i} value={i+1} style={{background:T.maroon}}>{m}</option>)}
               </select>
-              <input type="number" value={year} onChange={e=>setYearF(+e.target.value)} style={{width:68,padding:"5px 8px",borderRadius:5,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:13,textAlign:"center"}}/>
+              <input type="number" value={year} onChange={e=>setYear(+e.target.value)} style={{width:68,padding:"5px 8px",borderRadius:5,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:13,textAlign:"center"}}/>
               <div style={{width:1,height:22,background:"rgba(255,255,255,0.2)"}}/>
               <button onClick={exportData} style={{...btn("rgba(212,120,10,0.4)",T.saffronL,true),border:"1px solid rgba(212,120,10,0.5)"}}>⬇ Export</button>
               <button onClick={()=>importRef.current.click()} style={{...btn("rgba(255,255,255,0.1)","rgba(255,255,255,0.8)",true),border:"1px solid rgba(255,255,255,0.2)"}}>⬆ Import</button>
@@ -257,11 +211,11 @@ function AppInner(){
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
         {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
-        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps,depts,activeDept,adv,setAdv:setAdvF,loan,setLoan:setLoanF,pf,setPf:setPfF,esi,setEsi:setEsiF,month,year,showToast}}/>}
+        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps,depts,activeDept,adv,setAdv,loan,setLoan,pf,setPf,esi,setEsi,month,year,showToast}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
-        {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,setDbAcc:setDbAccF}}/>}
-        {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,setEmps:setEmpsF,depts,activeDept,nid,setNid:setNidF}}/>}
-        {safeTab==="depts"  &&role==="admin"&&<DeptsTab {...{depts,setDepts:setDeptsF,emps,ndid,setNdid:setNdidF,setDeptId}}/>}
+        {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,setDbAcc}}/>}
+        {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,setEmps,depts,activeDept,nid,setNid}}/>}
+        {safeTab==="depts"  &&role==="admin"&&<DeptsTab {...{depts,setDepts,emps,ndid,setNdid,setDeptId}}/>}
       </div>
       {!role&&<LoginOverlay onLogin={doLogin}/>}
     </div>
@@ -367,16 +321,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role}){
   const [mode,setMode]=useState("att");
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(d=>d.id===activeDept);
-  const markAll=eid=>{
-    const updates={...att};
-    days.forEach(d=>{if(dow(year,month,d)!==0)updates[`${eid}_${d}`]=1;});
-    setAttF(updates);
-  };
-  const clrAll=eid=>{
-    const updates={...att};
-    days.forEach(d=>{updates[`${eid}_${d}`]=0;});
-    setAttF(updates);
-  };
+  const markAll=eid=>days.forEach(d=>{if(dow(year,month,d)!==0)sa(eid,d,1);});
+  const clrAll=eid=>days.forEach(d=>sa(eid,d,0));
   return(
     <div style={card}>
       <div style={sec}>
