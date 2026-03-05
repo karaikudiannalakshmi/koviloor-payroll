@@ -99,7 +99,6 @@ function AppInner(){
   const [toast,setToast]=useState("");
   const [syncing,setSyncing]=useState(true);
   const importRef=useRef();
-  const ignoreNext=useRef(false);
 
   const activeDept=deptId||(depts[0]?.id||null);
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
@@ -107,7 +106,6 @@ function AppInner(){
   // ── Subscribe to Firebase (real-time sync) ────────────────────
   useEffect(()=>{
     const unsub = onValue(dbRef("koviloor"), snap=>{
-      if(ignoreNext.current){ ignoreNext.current=false; return; }
       const d=snap.val();
       if(!d){ setSyncing(false); return; }
       if(d.depts)setDepts(d.depts);
@@ -129,8 +127,9 @@ function AppInner(){
   },[]);
 
   // ── Write to Firebase on change ───────────────────────────────
-  const fbWrite=(path,val)=>{ ignoreNext.current=true; dbSet(path,val); };
+  const fbWrite=(path,val)=>{ dbSet(path,val); };
 
+  // Write to Firebase — onValue will update local state for all devices
   const setDeptsF =v=>{ setDepts(v);  fbWrite("koviloor/depts",v); };
   const setEmpsF  =v=>{ setEmps(v);   fbWrite("koviloor/emps",v); };
   const setAttF   =v=>{ setAtt(v);    fbWrite("koviloor/att",v); };
