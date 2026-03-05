@@ -1,26 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Component } from "react";
-
-// ── Error Boundary (catches mobile crashes) ──────────────────────
-class ErrorBoundary extends Component {
-  constructor(props){ super(props); this.state={error:null}; }
-  static getDerivedStateFromError(e){ return {error:e?.message||"Unknown error"}; }
-  render(){
-    if(this.state.error) return (
-      <div style={{padding:32,fontFamily:"Georgia,serif",background:"#fdf3e3",minHeight:"100vh",color:"#6b1a1a"}}>
-        <div style={{fontSize:40,marginBottom:16}}>🛕</div>
-        <div style={{fontWeight:700,fontSize:18,marginBottom:12}}>Koviloor Madalayam</div>
-        <div style={{background:"#fde8e8",border:"2px solid #8b1a1a",borderRadius:8,padding:16,fontSize:13,marginBottom:16}}>
-          <b>App Error:</b> {this.state.error}
-        </div>
-        <button onClick={()=>{ localStorage.clear(); window.location.reload(); }}
-          style={{padding:"10px 20px",background:"#6b1a1a",color:"white",border:"none",borderRadius:6,fontSize:14,cursor:"pointer",fontWeight:700}}>
-          🔄 Clear & Reload
-        </button>
-      </div>
-    );
-    return this.props.children;
-  }
-}
+import { useState, useMemo, useEffect, useRef } from "react";
 
 const LS  = "koviloor_payroll_v3";
 const ALS = "koviloor_auth_v2";
@@ -64,7 +42,7 @@ const INIT_EMPS=[
   {id:5,deptId:"d3",name:"Krishnan",rate:13000,bankName:"Krishnan",acc:"",ifsc:""},
 ];
 
-function AppInner(){
+export default function App(){
   const [role,setRole]=useState(()=>lSess());
   const doLogin=r=>{sSess(r);setRole(r);};
   const doLogout=()=>{sSess(null);setRole(null);};
@@ -222,10 +200,6 @@ function AppInner(){
   );
 }
 
-export default function App(){
-  return <ErrorBoundary><AppInner/></ErrorBoundary>;
-}
-
 // ════════ LOGIN ════════
 function LoginOverlay({onLogin}){
   const [user,setUser]=useState("");const [pass,setPass]=useState("");
@@ -328,8 +302,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role}){
       <div style={sec}>
         <span>📅 {mode==="att"?"Attendance":"OT / Partial"} — {dept?.name} — {MONTHS[month]} {year}</span>
         <div style={{display:"flex",gap:6}}>
-          <button type="button" onClick={()=>setMode("att")} style={btn(mode==="att"?T.saffron:T.maroonL,mode==="att"?T.maroonD:"white",true)}>📅 Attendance</button>
-          <button type="button" onClick={()=>setMode("ot")} style={btn(mode==="ot"?T.saffron:T.maroonL,mode==="ot"?T.maroonD:"white",true)}>⏱ OT / Partial</button>
+          <button onClick={()=>setMode("att")} style={btn(mode==="att"?T.saffron:T.maroonL,mode==="att"?T.maroonD:"white",true)}>Attendance</button>
+          <button onClick={()=>setMode("ot")} style={btn(mode==="ot"?T.saffron:T.maroonL,mode==="ot"?T.maroonD:"white",true)}>OT / Partial</button>
         </div>
       </div>
       <div style={{padding:"8px 14px",background:T.saffronPale,borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontFamily:"sans-serif"}}>
@@ -352,9 +326,9 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role}){
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
                     <span>{emp.name}</span>
                     {mode==="att"&&role==="admin"&&<div style={{display:"flex",gap:3}}>
-                        <button type="button" onClick={()=>markAll(emp.id)} style={{...btn(T.success,"white",true),padding:"2px 6px",fontSize:10}}>All</button>
-                        <button type="button" onClick={()=>clrAll(emp.id)} style={{...btn("#e8d5b0",T.text,true),padding:"2px 6px",fontSize:10}}>Clr</button>
-                      </div>}
+                      <button onClick={()=>markAll(emp.id)} style={{...btn(T.success,"white",true),padding:"2px 6px",fontSize:10}}>All</button>
+                      <button onClick={()=>clrAll(emp.id)} style={{...btn("#e8d5b0",T.text,true),padding:"2px 6px",fontSize:10}}>Clr</button>
+                    </div>}
                   </div>
                 </td>
                 <td style={{...tdS,background:rb,fontWeight:700,color:T.maroon}}>{mode==="att"?dW.toFixed(1):tH.toFixed(1)}</td>
@@ -363,8 +337,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role}){
                   if(mode==="att"){
                     const v=ga(emp.id,d);const isSun=dw===0;
                     const cyc=()=>{if(v===null||v===undefined)sa(emp.id,d,1);else if(v===1)sa(emp.id,d,0.5);else if(v===0.5)sa(emp.id,d,0);else sa(emp.id,d,null);};
-                    return <td key={d} onClick={!isSun?cyc:undefined}
-                      style={{textAlign:"center",padding:"4px 1px",background:isSun?"#f0e8f8":v===1?"#d4f0e4":v===0.5?"#fef3cd":v===0?"#fde8e8":rb,cursor:!isSun?"pointer":"default",borderLeft:`1px solid ${T.border}`,fontWeight:700,fontSize:11,userSelect:"none",minWidth:28}}>
+                    return <td key={d} onClick={!isSun&&role==="admin"?cyc:undefined}
+                      style={{textAlign:"center",padding:"4px 1px",background:isSun?"#f0e8f8":v===1?"#d4f0e4":v===0.5?"#fef3cd":v===0?"#fde8e8":rb,cursor:!isSun&&role==="admin"?"pointer":"default",borderLeft:`1px solid ${T.border}`,fontWeight:700,fontSize:11,userSelect:"none",minWidth:28}}>
                       {isSun?"·":v===1?"✓":v===0.5?"½":v===0?"✗":""}
                     </td>;
                   }else{
