@@ -1,19 +1,9 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue } from "firebase/database";
 
-// ── Firebase SDK Setup ────────────────────────────────────────────
-const FB = initializeApp({
-  apiKey:"AIzaSyDOCusASMq_ZUWwksdOGZT7WibyeMCJfKY",
-  authDomain:"koviloor-payroll.firebaseapp.com",
-  databaseURL:"https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:"koviloor-payroll",
-  storageBucket:"koviloor-payroll.firebasestorage.app",
-  messagingSenderId:"164444642831",
-  appId:"1:164444642831:web:26bc4c11522f8af4144d7a"
-});
-const DB = getDatabase(FB);
-const fbSet = (path,val) => set(ref(DB,path),val).catch(e=>console.error("FB:",e));
+// ── Firebase REST API — no npm needed ────────────────────────────
+const FB_URL = "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
+const fbSet = (val) => fetch(`${FB_URL}/koviloor.json`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(val)}).catch(e=>console.error("FB write:",e));
+const fbGet = () => fetch(`${FB_URL}/koviloor.json`).then(r=>r.json()).catch(()=>null);
 
 // ── Auth ──────────────────────────────────────────────────────────
 const PWD = { admin:"Andavar@07", operator:"Soma83" };
@@ -86,21 +76,33 @@ function Main(){
 
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
-  // ── REALTIME LISTENER — updates ALL devices instantly ──────────
+  const lastWrite=useRef(0);
+
+  // ── LOAD on start ─────────────────────────────────────────────
   useEffect(()=>{
-    const unsub = onValue(ref(DB,"koviloor"),(snap)=>{
-      const val=snap.val();
-      if(val && typeof val==="object"){ setD({...D0,...val}); }
+    fbGet().then(val=>{
+      if(val && typeof val==="object") setD({...D0,...val});
       setLoading(false);
-    },(err)=>{ console.error("Firebase:",err); setLoading(false); });
-    return ()=>unsub();
+    });
   },[]);
 
-  // ── WRITE — save patch to Firebase, onValue will sync all PCs ──
+  // ── POLL every 2 seconds — sync from other devices ────────────
+  useEffect(()=>{
+    const t=setInterval(()=>{
+      if(Date.now()-lastWrite.current < 3000) return; // skip if we just wrote
+      fbGet().then(val=>{
+        if(val && typeof val==="object") setD({...D0,...val});
+      });
+    },2000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  // ── WRITE to Firebase ─────────────────────────────────────────
   const write=(patch)=>{
     setD(prev=>{
       const next={...prev,...patch};
-      fbSet("koviloor",next);
+      lastWrite.current=Date.now();
+      fbSet(next);
       return next;
     });
   };
