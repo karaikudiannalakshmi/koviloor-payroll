@@ -175,9 +175,9 @@ function AppInner(){
   const nd=dim(year,month);
   const days=Array.from({length:nd},(_,i)=>i+1);
   const ga=(eid,d)=>{const v=att[`${eid}_${d}`];return v===undefined?null:v;};
-  const sa=(eid,d,v)=>setAttF(p=>({...p,[`${eid}_${d}`]:v}));
+  const sa=(eid,d,v)=>{ const nv={...att,[`${eid}_${d}`]:v}; setAttF(nv); };
   const got=(eid,d)=>ot[`${eid}_${d}`]??"";
-  const sot=(eid,d,v)=>setOtF(p=>({...p,[`${eid}_${d}`]:v}));
+  const sot=(eid,d,v)=>{ const nv={...ot,[`${eid}_${d}`]:v}; setOtF(nv); };
 
   const settle=useMemo(()=>emps.map(emp=>{
     const dr=emp.rate/26;let daysWorked=0;
@@ -539,13 +539,13 @@ function DedTab({emps,depts,activeDept,adv,setAdv,loan,setLoan,pf,setPf,esi,setE
               return <tr key={e.id}>
                 <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
                 <td style={{...tdS,padding:"5px 8px",background:rb}}>
-                  {NI(ln.ob,ev=>setLoan(p=>({...p,[e.id]:{...(p[e.id]||{}),ob:ev.target.value}})))}
+                  {NI(ln.ob,ev=>{ const n={...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}; setLoan(n); })}
                 </td>
                 <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>
-                  {NI(ln.given,ev=>setLoan(p=>({...p,[e.id]:{...(p[e.id]||{}),given:ev.target.value}})))}
+                  {NI(ln.given,ev=>{ const n={...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}; setLoan(n); })}
                 </td>
                 <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>
-                  {NI(ln.ded,ev=>setLoan(p=>({...p,[e.id]:{...(p[e.id]||{}),ded:ev.target.value}})))}
+                  {NI(ln.ded,ev=>{ const n={...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}; setLoan(n); })}
                 </td>
                 <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                   {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
@@ -581,7 +581,7 @@ function DedTab({emps,depts,activeDept,adv,setAdv,loan,setLoan,pf,setPf,esi,setE
               <tr key={e.id} style={{background:i%2===0?T.white:"#fdf8f0"}}>
                 <td style={tdL}><b>{e.name}</b></td>
                 <td style={{...tdS,padding:"5px 8px"}}>
-                  {NI(adv[e.id],ev=>setAdv(p=>({...p,[e.id]:ev.target.value})),120)}
+                  {NI(adv[e.id],ev=>{ const n={...adv,[e.id]:ev.target.value}; setAdv(n); },120)}
                 </td>
               </tr>
             ))}</tbody>
@@ -607,7 +607,7 @@ function DedTab({emps,depts,activeDept,adv,setAdv,loan,setLoan,pf,setPf,esi,setE
               <tr key={e.id} style={{background:i%2===0?T.white:T.blueL}}>
                 <td style={tdL}><b>{e.name}</b></td>
                 <td style={{...tdS,padding:"5px 8px"}}>
-                  {NI(pf[e.id],ev=>setPf(p=>({...p,[e.id]:ev.target.value})),120)}
+                  {NI(pf[e.id],ev=>{ const n={...pf,[e.id]:ev.target.value}; setPf(n); },120)}
                 </td>
               </tr>
             ))}</tbody>
@@ -633,7 +633,7 @@ function DedTab({emps,depts,activeDept,adv,setAdv,loan,setLoan,pf,setPf,esi,setE
               <tr key={e.id} style={{background:i%2===0?T.white:T.greenL}}>
                 <td style={tdL}><b>{e.name}</b></td>
                 <td style={{...tdS,padding:"5px 8px"}}>
-                  {NI(esi[e.id],ev=>setEsi(p=>({...p,[e.id]:ev.target.value})),120)}
+                  {NI(esi[e.id],ev=>{ const n={...esi,[e.id]:ev.target.value}; setEsi(n); },120)}
                 </td>
               </tr>
             ))}</tbody>
