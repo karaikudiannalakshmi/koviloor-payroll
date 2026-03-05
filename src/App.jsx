@@ -1,4 +1,21 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, onValue, set } from "firebase/database";
+
+// ── Firebase Setup ─────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDOCusASMq_ZUWwksdOGZT7WibyeMCJfKY",
+  authDomain: "koviloor-payroll.firebaseapp.com",
+  databaseURL: "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "koviloor-payroll",
+  storageBucket: "koviloor-payroll.firebasestorage.app",
+  messagingSenderId: "164444642831",
+  appId: "1:164444642831:web:26bc4c11522f8af4144d7a"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+const dbRef = (path) => ref(db, path);
+const dbSet = (path, val) => set(dbRef(path), val).catch(e=>console.error("DB write:",e));
 
 // ── Error Boundary (catches mobile crashes) ──────────────────────
 class ErrorBoundary extends Component {
