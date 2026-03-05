@@ -1,25 +1,19 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, onValue } from "firebase/database";
 
-// ── Firebase REST API (no npm install needed) ─────────────────────
-const FB_URL = "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
-const fbGet = async (path) => {
-  const r = await fetch(`${FB_URL}/${path}.json`);
-  return r.json();
-};
-const fbSet = async (path, val) => {
-  await fetch(`${FB_URL}/${path}.json`, {
-    method: "PUT",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(val)
-  });
-};
-const fbPatch = async (path, val) => {
-  await fetch(`${FB_URL}/${path}.json`, {
-    method: "PATCH",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(val)
-  });
-};
+// ── Firebase SDK Setup ────────────────────────────────────────────
+const FB = initializeApp({
+  apiKey:"AIzaSyDOCusASMq_ZUWwksdOGZT7WibyeMCJfKY",
+  authDomain:"koviloor-payroll.firebaseapp.com",
+  databaseURL:"https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"koviloor-payroll",
+  storageBucket:"koviloor-payroll.firebasestorage.app",
+  messagingSenderId:"164444642831",
+  appId:"1:164444642831:web:26bc4c11522f8af4144d7a"
+});
+const DB = getDatabase(FB);
+const fbSet = (path,val) => set(ref(DB,path),val).catch(e=>console.error("FB:",e));
 
 // ── Auth ──────────────────────────────────────────────────────────
 const PWD = { admin:"Andavar@07", operator:"Soma83" };
@@ -85,39 +79,30 @@ function Main(){
   const [role,setRole]=useState(getSess);
   const [tab,setTab]=useState("att");
   const [deptId,setDeptId]=useState(null);
-  const [d,setD]=useState(D0);       // all data in one object
+  const [d,setD]=useState(D0);
   const [loading,setLoading]=useState(true);
   const [toast,setToast]=useState("");
   const importRef=useRef();
-  const isLocal=useRef(false);       // true when we triggered the write ourselves
 
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
-  // ── LOAD FROM FIREBASE ON START ────────────────────────────────
+  // ── REALTIME LISTENER — updates ALL devices instantly ──────────
   useEffect(()=>{
-    fbGet("koviloor").then(val=>{
+    const unsub = onValue(ref(DB,"koviloor"),(snap)=>{
+      const val=snap.val();
       if(val && typeof val==="object"){ setD({...D0,...val}); }
       setLoading(false);
-    }).catch(()=>setLoading(false));
+    },(err)=>{ console.error("Firebase:",err); setLoading(false); });
+    return ()=>unsub();
   },[]);
 
-  // ── POLL FIREBASE EVERY 3 SECONDS ──────────────────────────────
-  useEffect(()=>{
-    const interval = setInterval(()=>{
-      if(isLocal.current){ isLocal.current=false; return; }
-      fbGet("koviloor").then(val=>{
-        if(val && typeof val==="object"){ setD(prev=>({...D0,...val})); }
-      }).catch(()=>{});
-    }, 3000);
-    return ()=>clearInterval(interval);
-  },[]);
-
-  // ── WRITE TO FIREBASE ──────────────────────────────────────────
+  // ── WRITE — save patch to Firebase, onValue will sync all PCs ──
   const write=(patch)=>{
-    const next={...d,...patch};
-    setD(next);
-    isLocal.current=true;
-    fbSet("koviloor",next);
+    setD(prev=>{
+      const next={...prev,...patch};
+      fbSet("koviloor",next);
+      return next;
+    });
   };
 
   const {year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid}=d;
