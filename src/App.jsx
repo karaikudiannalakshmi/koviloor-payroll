@@ -268,7 +268,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
   const [mode,setMode]=useState("att");
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(d=>d.id===activeDept);
-  const markAll=eid=>{const u={...att};days.forEach(d=>{if(dow(year,month,d)!==0)u[`${eid}_${d}`]=1;});write({att:u});};
+  const markAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({att:u});};
   const clrAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({att:u});};
   return(
     <div style={card}>
@@ -280,7 +280,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
         </div>
       </div>
       <div style={{padding:"8px 14px",background:T.saffronPale,borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontFamily:"sans-serif"}}>
-        {mode==="att"?"💡 Click = ✓ Present · again = ½ Half Day · again = ✗ Absent · again = Clear. Sundays shaded.":"💡 Enter OT hours. Paid at Daily Rate ÷ 8 per hour."}
+        {mode==="att"?"💡 Click = ✓ Present · again = ½ Half Day · again = ✗ Absent · again = Clear.":"💡 Enter OT hours. Paid at Daily Rate ÷ 8 per hour."}
       </div>
       {de.length===0?<div style={{padding:32,textAlign:"center",color:T.muted}}>No employees in this department.</div>:(
         <div style={{overflowX:"auto"}}>
@@ -288,7 +288,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
             <thead><tr>
               <th style={{...thS,textAlign:"left",minWidth:160,position:"sticky",left:0,zIndex:2}}>Employee</th>
               <th style={{...thS,minWidth:50}}>{mode==="att"?"Days":"Hrs"}</th>
-              {days.map(d=>{const dw=dow(year,month,d);return <th key={d} style={{...thS,background:dw===0?"#3d1a5a":T.maroon,minWidth:mode==="att"?28:46,padding:"3px 1px"}}><div style={{fontSize:8,opacity:0.7}}>{DOW[dw]}</div><div style={{fontSize:11}}>{d}</div></th>;})}
+              {days.map(d=>{const dw=dow(year,month,d);return <th key={d} style={{...thS,background:T.maroon,minWidth:mode==="att"?28:46,padding:"3px 1px"}}><div style={{fontSize:8,opacity:0.7}}>{DOW[dw]}</div><div style={{fontSize:11}}>{d}</div></th>;})}
             </tr></thead>
             <tbody>{de.map((emp,ei)=>{
               const dW=days.reduce((s,d)=>{const v=ga(emp.id,d);return s+(v!==null&&v!==undefined?fv(v):0);},0);
@@ -308,14 +308,14 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
                 {days.map(d=>{
                   const dw=dow(year,month,d);
                   if(mode==="att"){
-                    const v=ga(emp.id,d);const isSun=dw===0;
+                    const v=ga(emp.id,d);
                     const cyc=()=>{if(v===null||v===undefined)sa(emp.id,d,1);else if(v===1)sa(emp.id,d,0.5);else if(v===0.5)sa(emp.id,d,0);else sa(emp.id,d,null);};
-                    return <td key={d} onClick={!isSun?cyc:undefined} style={{textAlign:"center",padding:"4px 1px",background:isSun?"#f0e8f8":v===1?"#d4f0e4":v===0.5?"#fef3cd":v===0?"#fde8e8":rb,cursor:!isSun?"pointer":"default",borderLeft:`1px solid ${T.border}`,fontWeight:700,fontSize:11,userSelect:"none",minWidth:28}}>
-                      {isSun?"·":v===1?"✓":v===0.5?"½":v===0?"✗":""}
+                    return <td key={d} onClick={cyc} style={{textAlign:"center",padding:"4px 1px",background:v===1?"#d4f0e4":v===0.5?"#fef3cd":v===0?"#fde8e8":rb,cursor:"pointer",borderLeft:`1px solid ${T.border}`,fontWeight:700,fontSize:11,userSelect:"none",minWidth:28}}>
+                      {v===1?"✓":v===0.5?"½":v===0?"✗":""}
                     </td>;
                   }else{
                     const val=got(emp.id,d);const num=fv(val);
-                    return <td key={d} style={{padding:"2px 1px",background:dw===0?"#f0e8f8":rb,borderLeft:`1px solid ${T.border}`}}>
+                    return <td key={d} style={{padding:"2px 1px",background:rb,borderLeft:`1px solid ${T.border}`}}>
                       {dw!==0&&<input type="number" step="0.5" value={val} onChange={e=>sot(emp.id,d,e.target.value)} placeholder="0" style={{...inp(44),textAlign:"center",fontSize:11,padding:"3px 2px",background:num>0?"#edf7f2":"white"}}/>}
                     </td>;
                   }
