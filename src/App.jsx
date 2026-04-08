@@ -81,7 +81,23 @@ function Main(){
   // ── LOAD on start ─────────────────────────────────────────────
   useEffect(()=>{
     fbGet().then(val=>{
-      if(val && typeof val==="object") setD({...D0,...val});
+      if(val && typeof val==="object"){
+        // Migrate old flat att/ot/adv/loan/pf/esi to month-keyed format
+        const migrated = {...val};
+        const y = val.year || new Date().getFullYear();
+        const m = val.month || (new Date().getMonth()+1);
+        const mk = `${y}_${m}`;
+        if(val.att && !val[`att_${mk}`]){ migrated[`att_${mk}`]=val.att; delete migrated.att; }
+        if(val.ot  && !val[`ot_${mk}`] ){ migrated[`ot_${mk}`] =val.ot;  delete migrated.ot;  }
+        if(val.adv && !val[`adv_${mk}`]){ migrated[`adv_${mk}`]=val.adv; delete migrated.adv; }
+        if(val.loan&& !val[`loan_${mk}`]){migrated[`loan_${mk}`]=val.loan;delete migrated.loan;}
+        if(val.pf  && !val[`pf_${mk}`] ){ migrated[`pf_${mk}`] =val.pf;  delete migrated.pf;  }
+        if(val.esi && !val[`esi_${mk}`]){ migrated[`esi_${mk}`]=val.esi; delete migrated.esi; }
+        // Save migrated data back to Firebase
+        const hasMigration = migrated !== val;
+        setD({...D0,...migrated});
+        fbSet(migrated);
+      }
       setLoading(false);
     });
   },[]);
