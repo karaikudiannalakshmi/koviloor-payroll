@@ -76,27 +76,29 @@ function Main(){
 
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
+  // Month-end export reminder
+  const isMonthEnd = ()=>{ const today=new Date(); return today.getFullYear()===year && today.getMonth()+1===month && today.getDate()>=28; };
+
   const lastWrite=useRef(0);
 
   // ── LOAD on start ─────────────────────────────────────────────
   useEffect(()=>{
     fbGet().then(val=>{
       if(val && typeof val==="object"){
-        // Migrate old flat att/ot/adv/loan/pf/esi to month-keyed format
         const migrated = {...val};
-        const y = val.year || new Date().getFullYear();
-        const m = val.month || (new Date().getMonth()+1);
+        // Use the year/month stored IN Firebase (not current date)
+        const y = val.year || 2026;
+        const m = val.month || 3;
         const mk = `${y}_${m}`;
-        if(val.att && !val[`att_${mk}`]){ migrated[`att_${mk}`]=val.att; delete migrated.att; }
-        if(val.ot  && !val[`ot_${mk}`] ){ migrated[`ot_${mk}`] =val.ot;  delete migrated.ot;  }
-        if(val.adv && !val[`adv_${mk}`]){ migrated[`adv_${mk}`]=val.adv; delete migrated.adv; }
-        if(val.loan&& !val[`loan_${mk}`]){migrated[`loan_${mk}`]=val.loan;delete migrated.loan;}
-        if(val.pf  && !val[`pf_${mk}`] ){ migrated[`pf_${mk}`] =val.pf;  delete migrated.pf;  }
-        if(val.esi && !val[`esi_${mk}`]){ migrated[`esi_${mk}`]=val.esi; delete migrated.esi; }
-        // Save migrated data back to Firebase
-        const hasMigration = migrated !== val;
+        let needsSave = false;
+        if(val.att  && Object.keys(val.att).length>0  && !val[`att_${mk}`]) { migrated[`att_${mk}`]=val.att;   delete migrated.att;  needsSave=true; }
+        if(val.ot   && Object.keys(val.ot).length>0   && !val[`ot_${mk}`])  { migrated[`ot_${mk}`]=val.ot;    delete migrated.ot;   needsSave=true; }
+        if(val.adv  && Object.keys(val.adv).length>0  && !val[`adv_${mk}`]) { migrated[`adv_${mk}`]=val.adv;  delete migrated.adv;  needsSave=true; }
+        if(val.loan && Object.keys(val.loan).length>0 && !val[`loan_${mk}`]){ migrated[`loan_${mk}`]=val.loan; delete migrated.loan; needsSave=true; }
+        if(val.pf   && Object.keys(val.pf).length>0   && !val[`pf_${mk}`])  { migrated[`pf_${mk}`]=val.pf;   delete migrated.pf;   needsSave=true; }
+        if(val.esi  && Object.keys(val.esi).length>0  && !val[`esi_${mk}`]) { migrated[`esi_${mk}`]=val.esi;  delete migrated.esi;  needsSave=true; }
         setD({...D0,...migrated});
-        fbSet(migrated);
+        if(needsSave) fbSet(migrated);
       }
       setLoading(false);
     });
@@ -176,6 +178,10 @@ function Main(){
         <div style={{fontSize:48}}>🛕</div>
         <div style={{color:"white",fontSize:16,fontWeight:700}}>Koviloor Madalayam</div>
         <div style={{color:"rgba(255,255,255,0.7)",fontSize:12,fontFamily:"sans-serif"}}>Loading from cloud…</div>
+      </div>}
+      {isMonthEnd()&&<div style={{background:"#7b3f00",color:"white",padding:"8px 20px",textAlign:"center",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+        ⚠️ Month ending soon! Please export your data before changing to next month.
+        <button onClick={exportData} style={{background:"#fbd38d",color:"#7b3f00",border:"none",borderRadius:5,padding:"3px 12px",fontWeight:800,cursor:"pointer",fontSize:12}}>⬇ Export Now</button>
       </div>}
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.startsWith("✅")?T.success:T.danger,color:"white",padding:"10px 24px",borderRadius:8,fontWeight:700,fontSize:13,zIndex:9998,pointerEvents:"none"}}>{toast}</div>}
       <input ref={importRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
