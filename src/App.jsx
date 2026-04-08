@@ -107,14 +107,21 @@ function Main(){
     });
   };
 
-  const {year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid}=d;
+  const {year,month,depts,emps,dbAcc,nid,ndid}=d;
   const activeDept=deptId||(depts[0]?.id||null);
   const nd=dim(year,month);
   const days=Array.from({length:nd},(_,i)=>i+1);
-  const ga=(eid,day)=>{const v=att[`${eid}_${day}`];return v===undefined?null:v;};
-  const sa=(eid,day,v)=>write({att:{...att,[`${eid}_${day}`]:v}});
-  const got=(eid,day)=>ot[`${eid}_${day}`]??"";
-  const sot=(eid,day,v)=>write({ot:{...ot,[`${eid}_${day}`]:v}});
+  const mkey=`${year}_${month}`;
+  const mattObj=d[`att_${mkey}`]||{};
+  const motObj=d[`ot_${mkey}`]||{};
+  const adv=d[`adv_${mkey}`]||{};
+  const loan=d[`loan_${mkey}`]||{};
+  const pf=d[`pf_${mkey}`]||{};
+  const esi=d[`esi_${mkey}`]||{};
+  const ga=(eid,day)=>{const v=mattObj[`${eid}_${day}`];return v===undefined?null:v;};
+  const sa=(eid,day,v)=>write({[`att_${mkey}`]:{...mattObj,[`${eid}_${day}`]:v}});
+  const got=(eid,day)=>motObj[`${eid}_${day}`]??"";
+  const sot=(eid,day,v)=>write({[`ot_${mkey}`]:{...motObj,[`${eid}_${day}`]:v}});
 
   const settle=useMemo(()=>emps.map(emp=>{
     const dr=emp.rate/26;let dw2=0;
@@ -128,7 +135,7 @@ function Main(){
     const pfAmt=r2(fv(pf[emp.id])),esiAmt=r2(fv(esi[emp.id]));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt);
     return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,totalDed,net:r2(gross-totalDed)};
-  }),[emps,att,ot,adv,loan,pf,esi,nd,year,month]);
+  }),[emps,d,adv,loan,pf,esi,nd,year,month]);
 
   const exportData=()=>{
     const b=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
@@ -203,7 +210,7 @@ function Main(){
 
       {/* Content */}
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
-        {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write}}/>}
+        {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
@@ -268,8 +275,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
   const [mode,setMode]=useState("att");
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(d=>d.id===activeDept);
-  const markAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({att:u});};
-  const clrAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({att:u});};
+  const markAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
+  const clrAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
   return(
     <div style={card}>
       <div style={sec}>
@@ -378,13 +385,14 @@ function SalaryTab({settle,depts,activeDept,month,year}){
 
 // ── DEDUCTIONS ────────────────────────────────────────────────────
 function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}){
+  const mkey=`${year}_${month}`;
   const [showCF,setShowCF]=useState(false);
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(x=>x.id===activeDept);
   const lnBal=e=>{const ln=loan[e.id]||{};return r2(fv(ln.ob)+fv(ln.given)-fv(ln.ded));};
   const carryForward=()=>{
     const nl={};emps.forEach(e=>{const b=lnBal(e);nl[e.id]={ob:b>0?b:0,given:"",ded:""};});
-    write({loan:nl,adv:{}});setShowCF(false);showToast("✅ Carried forward");
+    write({[`loan_${mkey}`]:nl,[`adv_${mkey}`]:{}});setShowCF(false);showToast("✅ Carried forward");
   };
   const NI=(val,onChange,w=95)=>(
     <input type="number" value={val??""} onChange={onChange} placeholder="0" style={{...inp(w),textAlign:"right",padding:"5px 7px"}}/>
@@ -431,9 +439,9 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
             const ln=loan[e.id]||{};const bal=lnBal(e);const rb=i%2===0?T.white:"#fdf8f0";
             return <tr key={e.id}>
               <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
-              <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))}</td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))}</td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}</td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
               </td>
