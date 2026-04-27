@@ -1,43 +1,12 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
-import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, signOut } from "firebase/auth";
 
-// ── Firebase config ───────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey:        import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain:    "koviloor-payroll.firebaseapp.com",
-  databaseURL:   "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:     "koviloor-payroll",
-  storageBucket: "koviloor-payroll.appspot.com",
-  appId:         import.meta.env.VITE_FIREBASE_APP_ID,
-};
-const firebaseApp = initializeApp(firebaseConfig);
-const fbAuth = getAuth(firebaseApp);
-
-// ── Firebase REST API (auth-token aware) ─────────────────────────
+// ── Firebase REST API — no npm needed ────────────────────────────
 const FB_URL = "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
-const getToken = async () => {
-  const user = fbAuth.currentUser;
-  if (!user) return null;
-  try { return await user.getIdToken(); } catch { return null; }
-};
-const fbGet = async () => {
-  const token = await getToken();
-  const url = token ? `${FB_URL}/koviloor.json?auth=${token}` : `${FB_URL}/koviloor.json`;
-  return fetch(url).then(r => r.json()).catch(() => null);
-};
-const fbSet = async (val) => {
-  const token = await getToken();
-  const url = token ? `${FB_URL}/koviloor.json?auth=${token}` : `${FB_URL}/koviloor.json`;
-  return fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(val) })
-    .catch(e => console.error("FB write:", e));
-};
+const fbSet = (val) => fetch(`${FB_URL}/koviloor.json`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(val)}).catch(e=>console.error("FB write:",e));
+const fbGet = () => fetch(`${FB_URL}/koviloor.json`).then(r=>r.json()).catch(()=>null);
 
 // ── Auth ──────────────────────────────────────────────────────────
-const PWD = {
-  admin:    import.meta.env.VITE_ADMIN_PASSWORD,
-  operator: import.meta.env.VITE_OPERATOR_PASSWORD,
-};
+const PWD = { admin:"Andavar@07", operator:"Soma83" };
 const getSess = ()=>{ try{return localStorage.getItem("kv_sess")||null;}catch{return null;} };
 const setSess = r=>{ try{r?localStorage.setItem("kv_sess",r):localStorage.removeItem("kv_sess");}catch{} };
 
@@ -107,40 +76,14 @@ function Main(){
 
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
-  // Month-end export reminder
-  const isMonthEnd = ()=>{ const today=new Date(); return today.getFullYear()===year && today.getMonth()+1===month && today.getDate()>=28; };
-
   const lastWrite=useRef(0);
 
   // ── LOAD on start ─────────────────────────────────────────────
   useEffect(()=>{
     fbGet().then(val=>{
-      if(val && typeof val==="object"){
-        const migrated = {...val};
-        // Use the year/month stored IN Firebase (not current date)
-        const y = val.year || 2026;
-        const m = val.month || 3;
-        const mk = `${y}_${m}`;
-        let needsSave = false;
-        if(val.att  && Object.keys(val.att).length>0  && !val[`att_${mk}`]) { migrated[`att_${mk}`]=val.att;   delete migrated.att;  needsSave=true; }
-        if(val.ot   && Object.keys(val.ot).length>0   && !val[`ot_${mk}`])  { migrated[`ot_${mk}`]=val.ot;    delete migrated.ot;   needsSave=true; }
-        if(val.adv  && Object.keys(val.adv).length>0  && !val[`adv_${mk}`]) { migrated[`adv_${mk}`]=val.adv;  delete migrated.adv;  needsSave=true; }
-        if(val.loan && Object.keys(val.loan).length>0 && !val[`loan_${mk}`]){ migrated[`loan_${mk}`]=val.loan; delete migrated.loan; needsSave=true; }
-        if(val.pf   && Object.keys(val.pf).length>0   && !val[`pf_${mk}`])  { migrated[`pf_${mk}`]=val.pf;   delete migrated.pf;   needsSave=true; }
-        if(val.esi  && Object.keys(val.esi).length>0  && !val[`esi_${mk}`]) { migrated[`esi_${mk}`]=val.esi;  delete migrated.esi;  needsSave=true; }
-        setD({...D0,...migrated});
-        if(needsSave) fbSet(migrated);
-      }
+      if(val && typeof val==="object") setD({...D0,...val});
       setLoading(false);
     });
-  },[]);
-
-  // ── Re-authenticate anonymously on page reload if session exists ─
-  useEffect(()=>{
-    const savedRole = getSess();
-    if (savedRole && !fbAuth.currentUser) {
-      signInAnonymously(fbAuth).catch(e => console.error("Re-auth failed:", e));
-    }
   },[]);
 
   // ── POLL every 2 seconds — sync from other devices ────────────
@@ -164,21 +107,14 @@ function Main(){
     });
   };
 
-  const {year,month,depts,emps,dbAcc,nid,ndid}=d;
+  const {year,month,depts,emps,att,ot,adv,loan,pf,esi,dbAcc,nid,ndid}=d;
   const activeDept=deptId||(depts[0]?.id||null);
   const nd=dim(year,month);
   const days=Array.from({length:nd},(_,i)=>i+1);
-  const mkey=`${year}_${month}`;
-  const mattObj=d[`att_${mkey}`]||{};
-  const motObj=d[`ot_${mkey}`]||{};
-  const adv=d[`adv_${mkey}`]||{};
-  const loan=d[`loan_${mkey}`]||{};
-  const pf=d[`pf_${mkey}`]||{};
-  const esi=d[`esi_${mkey}`]||{};
-  const ga=(eid,day)=>{const v=mattObj[`${eid}_${day}`];return v===undefined?null:v;};
-  const sa=(eid,day,v)=>write({[`att_${mkey}`]:{...mattObj,[`${eid}_${day}`]:v}});
-  const got=(eid,day)=>motObj[`${eid}_${day}`]??"";
-  const sot=(eid,day,v)=>write({[`ot_${mkey}`]:{...motObj,[`${eid}_${day}`]:v}});
+  const ga=(eid,day)=>{const v=att[`${eid}_${day}`];return v===undefined?null:v;};
+  const sa=(eid,day,v)=>write({att:{...att,[`${eid}_${day}`]:v}});
+  const got=(eid,day)=>ot[`${eid}_${day}`]??"";
+  const sot=(eid,day,v)=>write({ot:{...ot,[`${eid}_${day}`]:v}});
 
   const settle=useMemo(()=>emps.map(emp=>{
     const dr=emp.rate/26;let dw2=0;
@@ -192,7 +128,7 @@ function Main(){
     const pfAmt=r2(fv(pf[emp.id])),esiAmt=r2(fv(esi[emp.id]));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt);
     return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,totalDed,net:r2(gross-totalDed)};
-  }),[emps,d,adv,loan,pf,esi,nd,year,month]);
+  }),[emps,att,ot,adv,loan,pf,esi,nd,year,month]);
 
   const exportData=()=>{
     const b=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
@@ -217,10 +153,6 @@ function Main(){
         <div style={{fontSize:48}}>🛕</div>
         <div style={{color:"white",fontSize:16,fontWeight:700}}>Koviloor Madalayam</div>
         <div style={{color:"rgba(255,255,255,0.7)",fontSize:12,fontFamily:"sans-serif"}}>Loading from cloud…</div>
-      </div>}
-      {isMonthEnd()&&<div style={{background:"#7b3f00",color:"white",padding:"8px 20px",textAlign:"center",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
-        ⚠️ Month ending soon! Please export your data before changing to next month.
-        <button onClick={exportData} style={{background:"#fbd38d",color:"#7b3f00",border:"none",borderRadius:5,padding:"3px 12px",fontWeight:800,cursor:"pointer",fontSize:12}}>⬇ Export Now</button>
       </div>}
       {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.startsWith("✅")?T.success:T.danger,color:"white",padding:"10px 24px",borderRadius:8,fontWeight:700,fontSize:13,zIndex:9998,pointerEvents:"none"}}>{toast}</div>}
       <input ref={importRef} type="file" accept=".json" onChange={importData} style={{display:"none"}}/>
@@ -247,7 +179,7 @@ function Main(){
             <div style={{padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",fontSize:11,fontWeight:700,color:role==="admin"?T.saffronL:"#a5d8ff",fontFamily:"sans-serif"}}>
               {role==="admin"?"🔐 ADMIN":"👤 OPERATOR"}
             </div>
-            <button onClick={async()=>{try{await signOut(fbAuth);}catch(e){console.error("SignOut:",e);}setSess(null);setRole(null);}} style={btn(T.danger,"white",true)}>⏏ Logout</button>
+            <button onClick={()=>{setSess(null);setRole(null);}} style={btn(T.danger,"white",true)}>⏏ Logout</button>
           </div>
         </div>
         <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
@@ -271,7 +203,7 @@ function Main(){
 
       {/* Content */}
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
-        {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write}}/>}
+        {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
@@ -279,7 +211,7 @@ function Main(){
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
         {safeTab==="depts"  &&role==="admin"&&<DeptsTab {...{depts,emps,ndid,write,d,setDeptId}}/>}
       </div>
-      {!role&&<LoginModal onLogin={async r=>{try{if(!fbAuth.currentUser)await signInAnonymously(fbAuth);}catch(e){console.error("Auth:",e);}setSess(r);setRole(r);}}/>}
+      {!role&&<LoginModal onLogin={r=>{setSess(r);setRole(r);}}/>}
     </div>
   );
 }
@@ -336,8 +268,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
   const [mode,setMode]=useState("att");
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(d=>d.id===activeDept);
-  const markAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
-  const clrAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
+  const markAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({att:u});};
+  const clrAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({att:u});};
   return(
     <div style={card}>
       <div style={sec}>
@@ -446,14 +378,13 @@ function SalaryTab({settle,depts,activeDept,month,year}){
 
 // ── DEDUCTIONS ────────────────────────────────────────────────────
 function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}){
-  const mkey=`${year}_${month}`;
   const [showCF,setShowCF]=useState(false);
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(x=>x.id===activeDept);
   const lnBal=e=>{const ln=loan[e.id]||{};return r2(fv(ln.ob)+fv(ln.given)-fv(ln.ded));};
   const carryForward=()=>{
     const nl={};emps.forEach(e=>{const b=lnBal(e);nl[e.id]={ob:b>0?b:0,given:"",ded:""};});
-    write({[`loan_${mkey}`]:nl,[`adv_${mkey}`]:{}});setShowCF(false);showToast("✅ Carried forward");
+    write({loan:nl,adv:{}});setShowCF(false);showToast("✅ Carried forward");
   };
   const NI=(val,onChange,w=95)=>(
     <input type="number" value={val??""} onChange={onChange} placeholder="0" style={{...inp(w),textAlign:"right",padding:"5px 7px"}}/>
@@ -500,9 +431,9 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
             const ln=loan[e.id]||{};const bal=lnBal(e);const rb=i%2===0?T.white:"#fdf8f0";
             return <tr key={e.id}>
               <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
-              <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))}</td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))}</td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))}</td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({loan:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}</td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
               </td>
