@@ -65,11 +65,11 @@ const D0={
   year:new Date().getFullYear(), month:new Date().getMonth()+1,
   depts:[{id:"d1",name:"Office",color:"#6b1a1a"},{id:"d2",name:"Kitchen",color:"#8b4513"},{id:"d3",name:"Garden",color:"#2d6b1a"}],
   emps:[
-    {id:1,deptId:"d1",name:"Rajendran",rate:18000,bankName:"Rajendran",acc:"",ifsc:""},
-    {id:2,deptId:"d1",name:"Meenakshi",rate:15000,bankName:"Meenakshi",acc:"",ifsc:""},
-    {id:3,deptId:"d2",name:"Murugan",rate:16000,bankName:"Murugan",acc:"",ifsc:""},
-    {id:4,deptId:"d2",name:"Selvi",rate:14000,bankName:"Selvi",acc:"",ifsc:""},
-    {id:5,deptId:"d3",name:"Krishnan",rate:13000,bankName:"Krishnan",acc:"",ifsc:""},
+    {id:1,deptId:"d1",name:"Rajendran",rate:18000,rent:0,bankName:"Rajendran",acc:"",ifsc:""},
+    {id:2,deptId:"d1",name:"Meenakshi",rate:15000,rent:0,bankName:"Meenakshi",acc:"",ifsc:""},
+    {id:3,deptId:"d2",name:"Murugan",rate:16000,rent:0,bankName:"Murugan",acc:"",ifsc:""},
+    {id:4,deptId:"d2",name:"Selvi",rate:14000,rent:0,bankName:"Selvi",acc:"",ifsc:""},
+    {id:5,deptId:"d3",name:"Krishnan",rate:13000,rent:0,bankName:"Krishnan",acc:"",ifsc:""},
   ],
   att:{},ot:{},adv:{},loan:{},pf:{},esi:{},dbAcc:"",nid:6,ndid:4,
 };
@@ -122,6 +122,8 @@ function Main(){
         const m = val.month || 3;
         const mk = `${y}_${m}`;
         let needsSave = false;
+        // Snapshot current emps into month key if not yet saved
+        if(val.emps && !val[`emps_${mk}`]) { migrated[`emps_${mk}`]=val.emps; needsSave=true; }
         if(val.att  && Object.keys(val.att).length>0  && !val[`att_${mk}`]) { migrated[`att_${mk}`]=val.att;   delete migrated.att;  needsSave=true; }
         if(val.ot   && Object.keys(val.ot).length>0   && !val[`ot_${mk}`])  { migrated[`ot_${mk}`]=val.ot;    delete migrated.ot;   needsSave=true; }
         if(val.adv  && Object.keys(val.adv).length>0  && !val[`adv_${mk}`]) { migrated[`adv_${mk}`]=val.adv;  delete migrated.adv;  needsSave=true; }
@@ -169,6 +171,18 @@ function Main(){
   const nd=dim(year,month);
   const days=Array.from({length:nd},(_,i)=>i+1);
   const mkey=`${year}_${month}`;
+
+  // ── Snapshot current emps into month key so historical data is preserved ──
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    if(emps && emps.length>0 && !d[`emps_${mkey}`]){
+      write({[`emps_${mkey}`]:emps});
+    }
+  },[mkey]); // intentionally only on mkey change
+
+  // Historical employees for this month (survives later deletions/resignations)
+  const monthEmps = d[`emps_${mkey}`] || emps;
+
   const mattObj=d[`att_${mkey}`]||{};
   const motObj=d[`ot_${mkey}`]||{};
   const adv=d[`adv_${mkey}`]||{};
@@ -180,7 +194,7 @@ function Main(){
   const got=(eid,day)=>motObj[`${eid}_${day}`]??"";
   const sot=(eid,day,v)=>write({[`ot_${mkey}`]:{...motObj,[`${eid}_${day}`]:v}});
 
-  const settle=useMemo(()=>emps.map(emp=>{
+  const settle=useMemo(()=>monthEmps.map(emp=>{
     const dr=emp.rate/26;let dw2=0;
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
@@ -190,9 +204,10 @@ function Main(){
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
     const lnBal=r2(lnOB+lnGiven-lnDed);
     const pfAmt=r2(fv(pf[emp.id])),esiAmt=r2(fv(esi[emp.id]));
-    const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt);
-    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,totalDed,net:r2(gross-totalDed)};
-  }),[emps,d,adv,loan,pf,esi,nd,year,month]);
+    const rentAmt=r2(fv(emp.rent));
+    const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
+    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
+  }),[monthEmps,d,adv,loan,pf,esi,nd,year,month]);
 
   const exportData=()=>{
     const b=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
@@ -271,9 +286,9 @@ function Main(){
 
       {/* Content */}
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
-        {safeTab==="att"    &&<AttTab {...{emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write}}/>}
+        {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
-        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
+        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,write}}/>}
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
@@ -411,6 +426,7 @@ function SalaryTab({settle,depts,activeDept,month,year}){
             <th style={thS}>Basic</th><th style={thS}>OT</th><th style={{...thS,background:T.success}}>Gross</th>
             <th style={thS}>Advance</th><th style={thS}>Loan</th>
             <th style={{...thS,background:T.blue}}>PF</th><th style={{...thS,background:T.green}}>ESI</th>
+            <th style={{...thS,background:"#5a2d00"}}>Rent</th>
             <th style={{...thS,background:T.saffron,color:T.maroonD}}>Net Pay</th>
           </tr></thead>
           <tbody>{rows.map((s,i)=>(
@@ -424,6 +440,7 @@ function SalaryTab({settle,depts,activeDept,month,year}){
               <td style={{...tdS,color:s.lnDed>0?T.danger:T.muted}}>₹{fi(s.lnDed)}</td>
               <td style={{...tdS,color:s.pfAmt>0?T.blue:T.muted}}>₹{fi(s.pfAmt)}</td>
               <td style={{...tdS,color:s.esiAmt>0?T.green:T.muted}}>₹{fi(s.esiAmt)}</td>
+              <td style={{...tdS,color:s.rentAmt>0?"#7a3d00":T.muted}}>₹{fi(s.rentAmt)}</td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:s.net<0?T.danger:T.maroon}}>₹{fi(s.net)}</td>
             </tr>
           ))}</tbody>
@@ -436,6 +453,7 @@ function SalaryTab({settle,depts,activeDept,month,year}){
             <td style={{...tdS,color:"#ffaaaa",fontWeight:800}}>₹{fi(rows.reduce((s,r)=>s+r.lnDed,0))}</td>
             <td style={{...tdS,color:"#aac4ff",fontWeight:800}}>₹{fi(rows.reduce((s,r)=>s+r.pfAmt,0))}</td>
             <td style={{...tdS,color:"#90eeda",fontWeight:800}}>₹{fi(rows.reduce((s,r)=>s+r.esiAmt,0))}</td>
+            <td style={{...tdS,color:"#ffcc88",fontWeight:800}}>₹{fi(rows.reduce((s,r)=>s+r.rentAmt,0))}</td>
             <td style={{...tdS,color:T.goldL,fontWeight:900,fontSize:15}}>₹{fi(rows.reduce((s,r)=>s+r.net,0))}</td>
           </tr></tfoot>
         </table>
@@ -465,6 +483,7 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
           <div style={{textAlign:"center",fontSize:36,marginBottom:10}}>🔄</div>
           <div style={{fontWeight:800,fontSize:15,color:T.maroon,textAlign:"center",marginBottom:12}}>New Month Carry Forward</div>
           <div style={{fontSize:13,color:T.muted,background:T.saffronPale,padding:14,borderRadius:8,lineHeight:2,marginBottom:20}}>
+            ✅ Employee list snapshot saved for this month<br/>
             ✅ Loan Balance → new Opening Balance<br/>
             ✅ Loan Given & Deduction reset to zero<br/>
             ✅ Advance cleared<br/>
@@ -564,7 +583,7 @@ function PayslipTab({settle,depts,activeDept,month,year}){
       <div class="grid"><div><div class="row"><span class="lbl">Basic (${s.daysWorked}d)</span><span class="val">₹${fi(s.baseSal)}</span></div></div><div><div class="row"><span class="lbl">OT Pay</span><span class="val">${s.otPay>0?"₹"+fi(s.otPay):"Nil"}</span></div></div></div>
       <div class="tot"><span>Gross</span><span style="color:#1a6b3a">₹${fi(s.gross)}</span></div>
       <div class="sec">Deductions</div>
-      <div class="grid"><div><div class="row"><span class="lbl">Advance</span><span class="val">−₹${fi(s.advAmt)}</span></div><div class="row"><span class="lbl">Loan Deduction</span><span class="val">−₹${fi(s.lnDed)}</span></div>${s.lnBal>0?`<div class="row"><span class="lbl" style="font-size:11px">Loan Balance c/f</span><span class="val" style="font-size:11px">₹${fi(s.lnBal)}</span></div>`:""}</div><div><div class="row"><span class="lbl">PF</span><span class="val">−₹${fi(s.pfAmt)}</span></div><div class="row"><span class="lbl">ESI</span><span class="val">−₹${fi(s.esiAmt)}</span></div></div></div>
+      <div class="grid"><div><div class="row"><span class="lbl">Advance</span><span class="val">−₹${fi(s.advAmt)}</span></div><div class="row"><span class="lbl">Loan Deduction</span><span class="val">−₹${fi(s.lnDed)}</span></div>${s.lnBal>0?`<div class="row"><span class="lbl" style="font-size:11px">Loan Balance c/f</span><span class="val" style="font-size:11px">₹${fi(s.lnBal)}</span></div>`:""}</div><div><div class="row"><span class="lbl">PF</span><span class="val">−₹${fi(s.pfAmt)}</span></div><div class="row"><span class="lbl">ESI</span><span class="val">−₹${fi(s.esiAmt)}</span></div>${s.rentAmt>0?`<div class="row"><span class="lbl">Accommodation Rent</span><span class="val">−₹${fi(s.rentAmt)}</span></div>`:""}</div></div>
       <div class="tot"><span>Total Deductions</span><span style="color:#8b1a1a">−₹${fi(s.totalDed)}</span></div>
       <div class="net"><span class="netlbl">NET SALARY</span><span class="netval">₹${fi(s.net)}</span></div>
       <div class="footer">Koviloor Madalayam · ${dept?.name} · ${MONTHS[month]} ${year}</div>
@@ -603,7 +622,7 @@ function PayslipTab({settle,depts,activeDept,month,year}){
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:T.danger,marginBottom:5}}>DEDUCTIONS</div>
-                  {[{l:"Advance",v:s.advAmt,c:T.danger},{l:"Loan",v:s.lnDed,c:T.danger},{l:"PF",v:s.pfAmt,c:T.blue},{l:"ESI",v:s.esiAmt,c:T.green}].map(x=>(
+                  {[{l:"Advance",v:s.advAmt,c:T.danger},{l:"Loan",v:s.lnDed,c:T.danger},{l:"PF",v:s.pfAmt,c:T.blue},{l:"ESI",v:s.esiAmt,c:T.green},{l:"Rent",v:s.rentAmt,c:"#7a3d00"}].map(x=>(
                     <div key={x.l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3,paddingBottom:3,borderBottom:`1px solid ${T.border}`}}>
                       <span style={{color:T.muted}}>{x.l}</span><span style={{fontWeight:600,color:x.v>0?x.c:T.muted}}>−₹{fi(x.v)}</span>
                     </div>
@@ -674,20 +693,23 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   const dept=depts.find(x=>x.id===activeDept);
   const de=emps.filter(e=>e.deptId===activeDept);
   const [ed,setEd]=useState(null);
+  const {year,month}=d;
+  const mkey=`${year}_${month}`;
   const saveEmp=()=>{
     if(!ed.name.trim()||!ed.rate)return;
     let newEmps,newNid=nid;
     if(ed.id===0){newEmps=[...emps,{...ed,id:nid,deptId:activeDept}];newNid=nid+1;}
     else newEmps=emps.map(e=>e.id===ed.id?{...ed}:e);
-    write({emps:newEmps,nid:newNid});setEd(null);
+    // Also update current-month snapshot so rent/rate changes take effect immediately
+    write({emps:newEmps,nid:newNid,[`emps_${mkey}`]:newEmps});setEd(null);
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:"Monthly Rate (₹)*",k:"rate",t:"number",ph:"e.g. 15000"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
+          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:"Monthly Rate (₹)*",k:"rate",t:"number",ph:"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
         </div>
@@ -697,10 +719,11 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
         </div>
       </div>}
       <table style={{borderCollapse:"collapse",width:"100%"}}>
-        <thead><tr><th style={{...thS,textAlign:"left"}}>Name</th><th style={thS}>Rate/Month</th><th style={thS}>Daily Rate</th><th style={{...thS,textAlign:"left"}}>Account</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Actions</th></tr></thead>
+        <thead><tr><th style={{...thS,textAlign:"left"}}>Name</th><th style={thS}>Rate/Month</th><th style={thS}>Daily Rate</th><th style={thS}>Rent Ded.</th><th style={{...thS,textAlign:"left"}}>Account</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Actions</th></tr></thead>
         <tbody>{de.map((e,i)=>(
           <tr key={e.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
             <td style={tdL}><b>{e.name}</b></td><td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>₹{fi(e.rate/26)}</td>
+            <td style={{...tdS,color:fv(e.rent)>0?T.danger:T.muted}}>{fv(e.rent)>0?`₹${fi(e.rent)}`:"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.acc||"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.ifsc||"—"}</td>
             <td style={{...tdS,padding:"4px 8px"}}>
@@ -710,7 +733,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               </div>
             </td>
           </tr>
-        ))}{de.length===0&&<tr><td colSpan={6} style={{padding:24,textAlign:"center",color:T.muted}}>No employees yet.</td></tr>}</tbody>
+        ))}{de.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:T.muted}}>No employees yet.</td></tr>}</tbody>
       </table>
     </div>
   );
