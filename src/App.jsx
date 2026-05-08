@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, Component } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
-// ── Firebase config  ───────────────────────────────────────────────
+// ── Firebase config ───────────────────────────────────────────────
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain:        "koviloor-madalayam-payroll.firebaseapp.com",
@@ -64,15 +64,7 @@ const btn=(bg,fg="#fff",sm)=>({padding:sm?"5px 10px":"7px 15px",borderRadius:6,b
 // ── Default Data ──────────────────────────────────────────────────
 const D0={
   year:new Date().getFullYear(), month:new Date().getMonth()+1,
-  depts:[{id:"d1",name:"Office",color:"#6b1a1a"},{id:"d2",name:"Kitchen",color:"#8b4513"},{id:"d3",name:"Garden",color:"#2d6b1a"}],
-  emps:[
-    {id:1,deptId:"d1",name:"Rajendran",rate:18000,rent:0,bankName:"Rajendran",acc:"",ifsc:""},
-    {id:2,deptId:"d1",name:"Meenakshi",rate:15000,rent:0,bankName:"Meenakshi",acc:"",ifsc:""},
-    {id:3,deptId:"d2",name:"Murugan",rate:16000,rent:0,bankName:"Murugan",acc:"",ifsc:""},
-    {id:4,deptId:"d2",name:"Selvi",rate:14000,rent:0,bankName:"Selvi",acc:"",ifsc:""},
-    {id:5,deptId:"d3",name:"Krishnan",rate:13000,rent:0,bankName:"Krishnan",acc:"",ifsc:""},
-  ],
-  att:{},ot:{},adv:{},loan:{},pf:{},esi:{},dbAcc:"",nid:6,ndid:4,
+  depts:[], emps:[], att:{},ot:{},adv:{},loan:{},pf:{},esi:{},dbAcc:"",nid:1,ndid:1,
 };
 
 // ── Error Boundary ────────────────────────────────────────────────
