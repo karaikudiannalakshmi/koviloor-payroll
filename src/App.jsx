@@ -1,21 +1,21 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
 import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, signOut } from "firebase/auth";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
 // ── Firebase config ───────────────────────────────────────────────
 const firebaseConfig = {
-  apiKey:        import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain:    "koviloor-payroll.firebaseapp.com",
-  databaseURL:   "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:     "koviloor-payroll",
-  storageBucket: "koviloor-payroll.appspot.com",
-  appId:         import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        "koviloor-madalayam-payroll.firebaseapp.com",
+  databaseURL:       "https://koviloor-madalayam-payroll-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "koviloor-madalayam-payroll",
+  storageBucket:     "koviloor-madalayam-payroll.firebasestorage.app",
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const fbAuth = getAuth(firebaseApp);
 
 // ── Firebase REST API (auth-token aware) ─────────────────────────
-const FB_URL = "https://koviloor-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
+const FB_URL = "https://koviloor-madalayam-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
 const getToken = async () => {
   const user = fbAuth.currentUser;
   if (!user) return null;
@@ -23,20 +23,21 @@ const getToken = async () => {
 };
 const fbGet = async () => {
   const token = await getToken();
-  const url = token ? `${FB_URL}/koviloor.json?auth=${token}` : `${FB_URL}/koviloor.json`;
+  const url = token ? `${FB_URL}/.json?auth=${token}` : `${FB_URL}/.json`;
   return fetch(url).then(r => r.json()).catch(() => null);
 };
 const fbSet = async (val) => {
   const token = await getToken();
-  const url = token ? `${FB_URL}/koviloor.json?auth=${token}` : `${FB_URL}/koviloor.json`;
+  const url = token ? `${FB_URL}/.json?auth=${token}` : `${FB_URL}/.json`;
   return fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(val) })
     .catch(e => console.error("FB write:", e));
 };
 
 // ── Auth ──────────────────────────────────────────────────────────
-const PWD = {
-  admin:    import.meta.env.VITE_ADMIN_PASSWORD,
-  operator: import.meta.env.VITE_OPERATOR_PASSWORD,
+// Role assigned by email — add emails here to grant access
+const ROLE_MAP = {
+  "koviloormadalayam@gmail.com": "admin",
+  "slnaiyar@gmail.com":          "admin",
 };
 const getSess = ()=>{ try{return localStorage.getItem("kv_sess")||null;}catch{return null;} };
 const setSess = r=>{ try{r?localStorage.setItem("kv_sess",r):localStorage.removeItem("kv_sess");}catch{} };
@@ -97,7 +98,8 @@ class EB extends Component {
 export default function App(){return <EB><Main/></EB>;}
 
 function Main(){
-  const [role,setRole]=useState(getSess);
+  const [role,setRole]=useState(null);
+  const [authReady,setAuthReady]=useState(false);
   const [tab,setTab]=useState("att");
   const [deptId,setDeptId]=useState(null);
   const [d,setD]=useState(D0);
@@ -111,6 +113,30 @@ function Main(){
   const isMonthEnd = ()=>{ const today=new Date(); return today.getFullYear()===year && today.getMonth()+1===month && today.getDate()>=28; };
 
   const lastWrite=useRef(0);
+
+  // ── Firebase Email Auth ───────────────────────────────────────
+  useEffect(()=>{
+    return onAuthStateChanged(fbAuth, (firebaseUser) => {
+      if (firebaseUser) {
+        const email = firebaseUser.email?.toLowerCase() || "";
+        const assignedRole = ROLE_MAP[email] || "operator";
+        setSess(assignedRole);
+        setRole(assignedRole);
+      } else {
+        setSess(null);
+        setRole(null);
+      }
+      setAuthReady(true);
+    });
+  },[]);
+
+  const handleLogin = async (email, password) => {
+    await signInWithEmailAndPassword(fbAuth, email.trim().toLowerCase(), password);
+  };
+  const handleLogout = async () => {
+    try { await signOut(fbAuth); } catch(e) { console.error("SignOut:",e); }
+    setSess(null); setRole(null);
+  };
 
   // ── LOAD on start ─────────────────────────────────────────────
   useEffect(()=>{
@@ -135,14 +161,6 @@ function Main(){
       }
       setLoading(false);
     });
-  },[]);
-
-  // ── Re-authenticate anonymously on page reload if session exists ─
-  useEffect(()=>{
-    const savedRole = getSess();
-    if (savedRole && !fbAuth.currentUser) {
-      signInAnonymously(fbAuth).catch(e => console.error("Re-auth failed:", e));
-    }
   },[]);
 
   // ── POLL every 2 seconds — sync from other devices ────────────
@@ -262,7 +280,7 @@ function Main(){
             <div style={{padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",fontSize:11,fontWeight:700,color:role==="admin"?T.saffronL:"#a5d8ff",fontFamily:"sans-serif"}}>
               {role==="admin"?"🔐 ADMIN":"👤 OPERATOR"}
             </div>
-            <button onClick={async()=>{try{await signOut(fbAuth);}catch(e){console.error("SignOut:",e);}setSess(null);setRole(null);}} style={btn(T.danger,"white",true)}>⏏ Logout</button>
+            <button onClick={handleLogout} style={btn(T.danger,"white",true)}>⏏ Logout</button>
           </div>
         </div>
         <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
@@ -294,21 +312,42 @@ function Main(){
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
         {safeTab==="depts"  &&role==="admin"&&<DeptsTab {...{depts,emps,ndid,write,d,setDeptId}}/>}
       </div>
-      {!role&&<LoginModal onLogin={async r=>{try{if(!fbAuth.currentUser)await signInAnonymously(fbAuth);}catch(e){console.error("Auth:",e);}setSess(r);setRole(r);}}/>}
+      {!authReady && (
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:T.maroonD,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+          <div style={{width:36,height:36,border:"3px solid rgba(255,255,255,0.2)",borderTop:`3px solid ${T.saffron}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      )}
+      {authReady && !role && <LoginModal onLogin={handleLogin}/>}
     </div>
   );
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────
 function LoginModal({onLogin}){
-  const [user,setUser]=useState("");const [pass,setPass]=useState("");
-  const [err,setErr]=useState("");const [showP,setShowP]=useState(false);const [which,setWhich]=useState(null);
-  const go=()=>{
-    if(!user.trim()||!pass.trim()){setErr("Enter username and password.");return;}
-    if(user==="admin"&&pass===PWD.admin){onLogin("admin");return;}
-    if(user==="operator"&&pass===PWD.operator){onLogin("operator");return;}
-    setErr("Incorrect username or password.");
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState("");
+  const [showP,setShowP]=useState(false);
+  const [loading,setLoading]=useState(false);
+
+  const go=async()=>{
+    if(!email.trim()||!pass.trim()){setErr("Enter email and password.");return;}
+    setLoading(true); setErr("");
+    try {
+      await onLogin(email, pass);
+    } catch(e) {
+      if(e.code==="auth/invalid-credential"||e.code==="auth/wrong-password"||e.code==="auth/user-not-found"){
+        setErr("Invalid email or password.");
+      } else if(e.code==="auth/too-many-requests"){
+        setErr("Too many attempts. Please wait.");
+      } else {
+        setErr("Sign-in failed. Check your connection.");
+      }
+      setLoading(false);
+    }
   };
+
   return(
     <div style={{position:"fixed",inset:0,zIndex:9999,background:`linear-gradient(160deg,${T.maroonD},${T.maroon},${T.saffron})`,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{width:"100%",maxWidth:400}}>
@@ -317,29 +356,26 @@ function LoginModal({onLogin}){
           <div style={{fontSize:22,fontWeight:700,color:"white"}}>Koviloor Madalayam</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",letterSpacing:"0.12em",marginTop:4,fontFamily:"sans-serif"}}>STAFF SALARY MANAGEMENT</div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
-          {[{r:"admin",icon:"🔐",l:"Admin",d:"Full access"},{r:"operator",icon:"👤",l:"Operator",d:"Attendance only"}].map(x=>(
-            <div key={x.r} onClick={()=>{setWhich(x.r);setUser(x.r);setPass("");setErr("");}} style={{background:which===x.r?"rgba(212,120,10,0.25)":"rgba(255,255,255,0.06)",border:`2px solid ${which===x.r?"rgba(240,160,48,0.8)":"rgba(255,255,255,0.15)"}`,borderRadius:10,padding:"14px 10px",cursor:"pointer",textAlign:"center"}}>
-              <div style={{fontSize:24,marginBottom:4}}>{x.icon}</div>
-              <div style={{fontWeight:700,color:which===x.r?T.saffronL:"white",fontSize:13,fontFamily:"sans-serif"}}>{x.l}</div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.45)",marginTop:2,fontFamily:"sans-serif"}}>{x.d}</div>
-            </div>
-          ))}
-        </div>
         <div style={{background:"rgba(255,255,255,0.08)",borderRadius:14,padding:24,border:"1px solid rgba(255,255,255,0.15)"}}>
           <div style={{marginBottom:14}}>
-            <label style={{display:"block",fontSize:10,color:"rgba(255,255,255,0.55)",fontWeight:700,letterSpacing:"0.08em",marginBottom:5,fontFamily:"sans-serif"}}>USERNAME</label>
-            <input value={user} onChange={e=>{setUser(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="admin or operator" style={{...inp(),background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"white",padding:"9px 12px",fontSize:14}}/>
+            <label style={{display:"block",fontSize:10,color:"rgba(255,255,255,0.55)",fontWeight:700,letterSpacing:"0.08em",marginBottom:5,fontFamily:"sans-serif"}}>EMAIL</label>
+            <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="you@example.com" disabled={loading} autoComplete="email"
+              style={{...inp(),background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"white",padding:"9px 12px",fontSize:14}}/>
           </div>
           <div style={{marginBottom:20}}>
             <label style={{display:"block",fontSize:10,color:"rgba(255,255,255,0.55)",fontWeight:700,letterSpacing:"0.08em",marginBottom:5,fontFamily:"sans-serif"}}>PASSWORD</label>
             <div style={{position:"relative"}}>
-              <input type={showP?"text":"password"} value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="Password" style={{...inp(),background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"white",padding:"9px 38px 9px 12px",fontSize:14}}/>
+              <input type={showP?"text":"password"} value={pass} onChange={e=>{setPass(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="Password" disabled={loading}
+                style={{...inp(),background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"white",padding:"9px 38px 9px 12px",fontSize:14}}/>
               <button type="button" onClick={()=>setShowP(p=>!p)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:15,color:"rgba(255,255,255,0.5)",padding:0}}>{showP?"🙈":"👁"}</button>
             </div>
           </div>
           {err&&<div style={{background:"rgba(139,26,26,0.35)",borderRadius:6,padding:"8px 12px",color:"#ffaaaa",fontSize:12,fontWeight:600,marginBottom:14,textAlign:"center"}}>{err}</div>}
-          <button type="button" onClick={go} style={{width:"100%",padding:12,borderRadius:8,border:"none",cursor:"pointer",background:`linear-gradient(90deg,${T.saffron},${T.saffronL})`,color:T.maroonD,fontWeight:800,fontSize:15,fontFamily:"Georgia,serif"}}>Sign In →</button>
+          <button type="button" onClick={go} disabled={loading}
+            style={{width:"100%",padding:12,borderRadius:8,border:"none",cursor:"pointer",background:`linear-gradient(90deg,${T.saffron},${T.saffronL})`,color:T.maroonD,fontWeight:800,fontSize:15,fontFamily:"Georgia,serif",opacity:loading?0.7:1}}>
+            {loading?"Signing in…":"Sign In →"}
+          </button>
+          <p style={{textAlign:"center",fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:14,marginBottom:0,fontFamily:"sans-serif"}}>Contact administrator to reset password</p>
         </div>
       </div>
     </div>
