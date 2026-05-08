@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, Component } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
+import { getDatabase, ref, get, set } from "firebase/database";
 
 // ── Firebase config ───────────────────────────────────────────────
 const firebaseConfig = {
@@ -13,24 +14,19 @@ const firebaseConfig = {
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const fbAuth = getAuth(firebaseApp);
+const fbDb   = getDatabase(firebaseApp);
 
-// ── Firebase REST API (auth-token aware) ─────────────────────────
-const FB_URL = "https://koviloor-madalayam-payroll-default-rtdb.asia-southeast1.firebasedatabase.app";
-const getToken = async () => {
-  const user = fbAuth.currentUser;
-  if (!user) return null;
-  try { return await user.getIdToken(); } catch { return null; }
-};
+// ── Firebase SDK read/write (replaces REST API) ───────────────────
 const fbGet = async () => {
-  const token = await getToken();
-  const url = token ? `${FB_URL}/.json?auth=${token}` : `${FB_URL}/.json`;
-  return fetch(url).then(r => r.json()).catch(() => null);
+  try {
+    const snap = await get(ref(fbDb, "/"));
+    return snap.exists() ? snap.val() : null;
+  } catch(e) { console.error("FB read:", e); return null; }
 };
 const fbSet = async (val) => {
-  const token = await getToken();
-  const url = token ? `${FB_URL}/.json?auth=${token}` : `${FB_URL}/.json`;
-  return fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(val) })
-    .catch(e => console.error("FB write:", e));
+  try {
+    await set(ref(fbDb, "/"), val);
+  } catch(e) { console.error("FB write:", e); }
 };
 
 // ── Auth ──────────────────────────────────────────────────────────
