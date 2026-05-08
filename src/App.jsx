@@ -203,10 +203,13 @@ function Main(){
   const sot=(eid,day,v)=>write({[`ot_${mkey}`]:{...motObj,[`${eid}_${day}`]:v}});
 
   const settle=useMemo(()=>monthEmps.map(emp=>{
+    const isFixed=!!emp.fixed;
     const dr=emp.rate/26;let dw2=0;
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
-    const baseSal=r2(dr*dw2),otPay=r2(otH*(dr/8)),gross=r2(baseSal+otPay);
+    const baseSal=isFixed?r2(emp.rate):r2(dr*dw2);
+    const otPay=isFixed?0:r2(otH*(dr/8));
+    const gross=r2(baseSal+otPay);
     const advAmt=r2(fv(adv[emp.id]));
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
@@ -406,14 +409,14 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
               return <tr key={emp.id}>
                 <td style={{...tdL,background:rb,position:"sticky",left:0,zIndex:1,fontWeight:600}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
-                    <span>{emp.name}</span>
+                    <span>{emp.name}{emp.fixed&&<span style={{marginLeft:5,background:"#fef3c7",color:"#92400e",padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700}}>FIXED</span>}</span>
                     {mode==="att"&&role==="admin"&&<div style={{display:"flex",gap:3}}>
                       <button type="button" onClick={()=>markAll(emp.id)} style={{...btn(T.success,"white",true),padding:"2px 6px",fontSize:10}}>All</button>
                       <button type="button" onClick={()=>clrAll(emp.id)} style={{...btn("#e8d5b0",T.text,true),padding:"2px 6px",fontSize:10}}>Clr</button>
                     </div>}
                   </div>
                 </td>
-                <td style={{...tdS,background:rb,fontWeight:700,color:T.maroon}}>{mode==="att"?dW.toFixed(1):tH.toFixed(1)}</td>
+                <td style={{...tdS,background:rb,fontWeight:700,color:T.maroon}}>{emp.fixed?"Fixed":mode==="att"?dW.toFixed(1):tH.toFixed(1)}</td>
                 {days.map(d=>{
                   const dw=dow(year,month,d);
                   if(mode==="att"){
@@ -731,13 +734,17 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
           {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:"Monthly Rate (₹)*",k:"rate",t:"number",ph:"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:16}}>
+            <input type="checkbox" id="fixedChk" checked={!!ed.fixed} onChange={e=>setEd(p=>({...p,fixed:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+            <label htmlFor="fixedChk" style={{fontSize:12,fontWeight:700,color:T.maroon,cursor:"pointer"}}>Fixed Salary (full pay regardless of attendance)</label>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,marginTop:12}}>
           <button onClick={saveEmp} style={btn(T.maroon)}>💾 Save</button>
@@ -745,10 +752,16 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
         </div>
       </div>}
       <table style={{borderCollapse:"collapse",width:"100%"}}>
-        <thead><tr><th style={{...thS,textAlign:"left"}}>Name</th><th style={thS}>Rate/Month</th><th style={thS}>Daily Rate</th><th style={thS}>Rent Ded.</th><th style={{...thS,textAlign:"left"}}>Account</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Actions</th></tr></thead>
+        <thead><tr><th style={{...thS,textAlign:"left"}}>Name</th><th style={thS}>Type</th><th style={thS}>Rate/Month</th><th style={thS}>Daily Rate</th><th style={thS}>Rent Ded.</th><th style={{...thS,textAlign:"left"}}>Account</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Actions</th></tr></thead>
         <tbody>{de.map((e,i)=>(
           <tr key={e.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
-            <td style={tdL}><b>{e.name}</b></td><td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>₹{fi(e.rate/26)}</td>
+            <td style={tdL}><b>{e.name}</b></td>
+            <td style={{...tdS}}>
+              {e.fixed
+                ? <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Fixed</span>
+                : <span style={{background:"#e8f0eb",color:"#1a3d2b",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Attendance</span>}
+            </td>
+            <td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>{e.fixed?"—":"₹"+fi(e.rate/26)}</td>
             <td style={{...tdS,color:fv(e.rent)>0?T.danger:T.muted}}>{fv(e.rent)>0?`₹${fi(e.rent)}`:"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.acc||"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.ifsc||"—"}</td>
@@ -759,7 +772,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               </div>
             </td>
           </tr>
-        ))}{de.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:T.muted}}>No employees yet.</td></tr>}</tbody>
+        ))}{de.length===0&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:T.muted}}>No employees yet.</td></tr>}</tbody>
       </table>
     </div>
   );
