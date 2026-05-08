@@ -130,8 +130,9 @@ function Main(){
     setSess(null); setRole(null);
   };
 
-  // ── LOAD on start ─────────────────────────────────────────────
+  // ── LOAD on start — only after auth is ready ──────────────────
   useEffect(()=>{
+    if(!authReady || !role) return; // wait for Firebase auth
     fbGet().then(val=>{
       if(val && typeof val==="object"){
         const migrated = {...val};
@@ -153,10 +154,11 @@ function Main(){
       }
       setLoading(false);
     });
-  },[]);
+  },[authReady, role]);
 
-  // ── POLL every 2 seconds — sync from other devices ────────────
+  // ── POLL every 2 seconds — only when authenticated ────────────
   useEffect(()=>{
+    if(!authReady || !role) return;
     const t=setInterval(()=>{
       if(Date.now()-lastWrite.current < 3000) return; // skip if we just wrote
       fbGet().then(val=>{
@@ -164,7 +166,7 @@ function Main(){
       });
     },2000);
     return ()=>clearInterval(t);
-  },[]);
+  },[authReady, role]);
 
   // ── WRITE to Firebase ─────────────────────────────────────────
   const write=(patch)=>{
