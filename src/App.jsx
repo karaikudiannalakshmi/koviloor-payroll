@@ -816,6 +816,10 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
         </table></div>
       </div>
 
+    </div>
+  );
+}
+
 // ── PAYSLIPS ──────────────────────────────────────────────────────
 function PayslipTab({settle,depts,activeDept,month,year}){
   const [sel,setSel]=useState(null);
