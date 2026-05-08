@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, Component } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
-// ── Firebase config ───────────────────────────────────────────────
+// ── Firebase config  ───────────────────────────────────────────────
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain:        "koviloor-madalayam-payroll.firebaseapp.com",
