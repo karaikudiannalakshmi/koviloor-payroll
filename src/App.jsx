@@ -32,7 +32,7 @@ const fbSet = async (val) => {
 // ── Auth ──────────────────────────────────────────────────────────
 // Role assigned by email — add emails here to grant access
 const ROLE_MAP = {
-  "koviloormadalayam@gmail.com": "admin",
+  "koviloormadalayam@gmail.com": "operator",
   "slnaiyar@gmail.com":          "admin",
 };
 const getSess = ()=>{ try{return localStorage.getItem("kv_sess")||null;}catch{return null;} };
@@ -210,7 +210,8 @@ function Main(){
     const baseSal=isFixed?r2(emp.rate):r2(dr*dw2);
     const otPay=isFixed?0:r2(otH*(dr/8));
     const gross=r2(baseSal+otPay);
-    const advAmt=r2(fv(adv[emp.id]));
+    const advEntries=Array.isArray(adv[emp.id])?adv[emp.id]:[];
+    const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
     const lnBal=r2(lnOB+lnGiven-lnDed);
@@ -298,7 +299,7 @@ function Main(){
 
       {/* Content */}
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
-        {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write}}/>}
+        {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write,isOperator:role==="operator"}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
@@ -377,9 +378,10 @@ function LoginModal({onLogin}){
 }
 
 // ── ATTENDANCE ────────────────────────────────────────────────────
-function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write}){
+function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write,isOperator}){
   const [mode,setMode]=useState("att");
-  const de=emps.filter(e=>e.deptId===activeDept);
+  // Operators only see attendance-based employees (not fixed salary)
+  const de=emps.filter(e=>e.deptId===activeDept && (isOperator ? !e.fixed : true));
   const dept=depts.find(d=>d.id===activeDept);
   const markAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
   const clrAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
@@ -389,7 +391,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
         <span>📅 {mode==="att"?"Attendance":"OT / Partial"} — {dept?.name} — {MONTHS[month]} {year}</span>
         <div style={{display:"flex",gap:6}}>
           <button type="button" onClick={()=>setMode("att")} style={btn(mode==="att"?T.saffron:T.maroonL,mode==="att"?T.maroonD:"white",true)}>📅 Attendance</button>
-          <button type="button" onClick={()=>setMode("ot")} style={btn(mode==="ot"?T.saffron:T.maroonL,mode==="ot"?T.maroonD:"white",true)}>⏱ OT / Partial</button>
+          {!isOperator&&<button type="button" onClick={()=>setMode("ot")} style={btn(mode==="ot"?T.saffron:T.maroonL,mode==="ot"?T.maroonD:"white",true)}>⏱ OT / Partial</button>}
         </div>
       </div>
       <div style={{padding:"8px 14px",background:T.saffronPale,borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontFamily:"sans-serif"}}>
@@ -496,16 +498,263 @@ function SalaryTab({settle,depts,activeDept,month,year}){
 function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}){
   const mkey=`${year}_${month}`;
   const [showCF,setShowCF]=useState(false);
+  const [advEmpId,setAdvEmpId]=useState(null); // which employee's advance ledger is open
+  const [advForm,setAdvForm]=useState({date:"",amount:""});
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(x=>x.id===activeDept);
   const lnBal=e=>{const ln=loan[e.id]||{};return r2(fv(ln.ob)+fv(ln.given)-fv(ln.ded));};
   const carryForward=()=>{
+    // Carry forward unrecovered advance balance to next month
     const nl={};emps.forEach(e=>{const b=lnBal(e);nl[e.id]={ob:b>0?b:0,given:"",ded:""};});
-    write({[`loan_${mkey}`]:nl,[`adv_${mkey}`]:{}});setShowCF(false);showToast("✅ Carried forward");
+    // For advances, carry forward the balance as opening balance for next month
+    const advNext={};
+    emps.forEach(e=>{
+      const entries=Array.isArray(adv[e.id])?adv[e.id]:[];
+      const total=entries.reduce((s,x)=>s+fv(x.amount),0);
+      const recovered=entries.reduce((s,x)=>s+fv(x.recovered),0);
+      const bal=total-recovered;
+      if(bal>0) advNext[e.id]=[{date:`${year}-${String(month).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
+    });
+    write({[`loan_${mkey}`]:nl,[`adv_${mkey}`]:advNext});setShowCF(false);showToast("✅ Carried forward");
   };
+
+  // Advance helpers
+  const getAdvEntries=eid=>Array.isArray(adv[eid])?adv[eid]:[];
+  const advTotal=eid=>getAdvEntries(eid).reduce((s,x)=>s+fv(x.amount),0);
+  const advRecovered=eid=>getAdvEntries(eid).reduce((s,x)=>s+fv(x.recovered),0);
+  const advBalance=eid=>r2(advTotal(eid)-advRecovered(eid));
+  const addAdvEntry=eid=>{
+    if(!advForm.amount||!advForm.date){showToast("⚠️ Enter date and amount");return;}
+    const entries=[...getAdvEntries(eid),{date:advForm.date,amount:+advForm.amount,recovered:0,note:advForm.note||""}];
+    write({[`adv_${mkey}`]:{...adv,[eid]:entries}});
+    setAdvForm({date:"",amount:"",note:""});showToast("✅ Advance added");
+  };
+  const updateRecovered=(eid,idx,val)=>{
+    const entries=getAdvEntries(eid).map((x,i)=>i===idx?{...x,recovered:+val}:x);
+    write({[`adv_${mkey}`]:{...adv,[eid]:entries}});
+  };
+  const deleteAdvEntry=(eid,idx)=>{
+    const entries=getAdvEntries(eid).filter((_,i)=>i!==idx);
+    write({[`adv_${mkey}`]:{...adv,[eid]:entries}});
+  };
+
   const NI=(val,onChange,w=95)=>(
     <input type="number" value={val??""} onChange={onChange} placeholder="0" style={{...inp(w),textAlign:"right",padding:"5px 7px"}}/>
   );
+  return(
+    <div>
+      {showCF&&<div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:T.white,borderRadius:12,padding:28,width:440,maxWidth:"95vw",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{textAlign:"center",fontSize:36,marginBottom:10}}>🔄</div>
+          <div style={{fontWeight:800,fontSize:15,color:T.maroon,textAlign:"center",marginBottom:12}}>New Month Carry Forward</div>
+          <div style={{fontSize:13,color:T.muted,background:T.saffronPale,padding:14,borderRadius:8,lineHeight:2,marginBottom:20}}>
+            ✅ Employee list snapshot saved for this month<br/>
+            ✅ Loan Balance → new Opening Balance<br/>
+            ✅ Loan Given &amp; Deduction reset to zero<br/>
+            ✅ Advance balance carried forward<br/>
+            ✅ PF &amp; ESI kept<br/>
+            <span style={{color:T.danger,fontWeight:600}}>⚠ Export data first</span>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={()=>setShowCF(false)} style={btn("#e8d5b0",T.text)}>Cancel</button>
+            <button onClick={carryForward} style={btn(T.maroon)}>✅ Carry Forward</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* Advance Ledger modal */}
+      {advEmpId&&(()=>{
+        const emp=de.find(e=>e.id===advEmpId);
+        const entries=getAdvEntries(advEmpId);
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.7)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:T.white,borderRadius:14,width:"100%",maxWidth:560,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+              <div style={{background:"#6b4a00",color:"white",padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"14px 14px 0 0"}}>
+                <div><div style={{fontWeight:700,fontSize:15}}>💳 Advance Ledger</div><div style={{fontSize:11,opacity:0.7,marginTop:2}}>{emp?.name} · {dept?.name} · {MONTHS[month]} {year}</div></div>
+                <button onClick={()=>setAdvEmpId(null)} style={{background:"none",border:"none",color:"white",fontSize:20,cursor:"pointer"}}>✕</button>
+              </div>
+              {/* Summary */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:0,borderBottom:`1px solid ${T.border}`}}>
+                {[{l:"Total Advance",v:advTotal(advEmpId),c:T.danger},{l:"Recovered",v:advRecovered(advEmpId),c:T.success},{l:"Balance",v:advBalance(advEmpId),c:advBalance(advEmpId)>0?T.danger:T.success}].map(x=>(
+                  <div key={x.l} style={{padding:"12px 16px",textAlign:"center",borderRight:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>{x.l}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:x.c}}>₹{fi(x.v)}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Add entry */}
+              <div style={{padding:14,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
+                <div style={{fontSize:11,fontWeight:700,color:T.maroon,marginBottom:8}}>+ Add Advance Entry</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                  <div><label style={{fontSize:10,color:T.muted,fontWeight:700,display:"block",marginBottom:3}}>DATE*</label>
+                    <input type="date" value={advForm.date||""} onChange={e=>setAdvForm(p=>({...p,date:e.target.value}))} style={inp()}/>
+                  </div>
+                  <div><label style={{fontSize:10,color:T.muted,fontWeight:700,display:"block",marginBottom:3}}>AMOUNT (₹)*</label>
+                    <input type="number" value={advForm.amount||""} onChange={e=>setAdvForm(p=>({...p,amount:e.target.value}))} placeholder="0" style={inp()}/>
+                  </div>
+                  <div><label style={{fontSize:10,color:T.muted,fontWeight:700,display:"block",marginBottom:3}}>NOTE</label>
+                    <input type="text" value={advForm.note||""} onChange={e=>setAdvForm(p=>({...p,note:e.target.value}))} placeholder="Optional" style={inp()}/>
+                  </div>
+                </div>
+                <button onClick={()=>addAdvEntry(advEmpId)} style={{...btn(T.maroon),marginTop:10}}>+ Add Entry</button>
+              </div>
+              {/* Entries list */}
+              {entries.length===0?<div style={{padding:24,textAlign:"center",color:T.muted}}>No advance entries this month.</div>:(
+                <table style={{borderCollapse:"collapse",width:"100%"}}>
+                  <thead><tr>
+                    <th style={{...thS,textAlign:"left",background:"#6b4a00"}}>Date</th>
+                    <th style={{...thS,background:"#6b4a00"}}>Advance</th>
+                    <th style={{...thS,background:"#6b4a00"}}>Recovered</th>
+                    <th style={{...thS,background:"#6b4a00"}}>Balance</th>
+                    <th style={{...thS,background:"#6b4a00"}}>Note</th>
+                    <th style={{...thS,background:"#6b4a00"}}></th>
+                  </tr></thead>
+                  <tbody>{entries.map((x,i)=>(
+                    <tr key={i} style={{background:i%2===0?T.white:"#fdf8f0"}}>
+                      <td style={tdL}>{x.date}</td>
+                      <td style={{...tdS,fontWeight:600,color:T.danger}}>₹{fi(x.amount)}</td>
+                      <td style={{...tdS,padding:"4px 8px"}}>
+                        <input type="number" value={x.recovered||""} onChange={e=>updateRecovered(advEmpId,i,e.target.value)} placeholder="0" style={{...inp(90),textAlign:"right",padding:"4px 6px"}}/>
+                      </td>
+                      <td style={{...tdS,fontWeight:700,color:fv(x.amount)-fv(x.recovered)>0?T.danger:T.success}}>
+                        ₹{fi(Math.max(0,fv(x.amount)-fv(x.recovered)))}
+                      </td>
+                      <td style={{...tdL,fontSize:11,color:T.muted}}>{x.note||"—"}</td>
+                      <td style={{...tdS,padding:"4px 6px"}}>
+                        <button onClick={()=>deleteAdvEntry(advEmpId,i)} style={btn(T.danger,"white",true)}>🗑️</button>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                  <tfoot><tr style={{background:"#6b4a00",color:"white"}}>
+                    <td style={{...tdL,color:"white",fontWeight:700}}>Total</td>
+                    <td style={{...tdS,color:T.saffronL,fontWeight:800}}>₹{fi(advTotal(advEmpId))}</td>
+                    <td style={{...tdS,color:"#b8ffb8",fontWeight:800}}>₹{fi(advRecovered(advEmpId))}</td>
+                    <td style={{...tdS,color:advBalance(advEmpId)>0?"#ffb8b8":"#b8ffb8",fontWeight:800}}>₹{fi(advBalance(advEmpId))}</td>
+                    <td colSpan={2}></td>
+                  </tr></tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,color:T.muted}}>Deductions — <b style={{color:T.maroon}}>{dept?.name}</b> — {MONTHS[month]} {year}</div>
+        <button onClick={()=>setShowCF(true)} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>🔄 New Month Setup</button>
+      </div>
+
+      {/* Advance Ledger Summary */}
+      <div style={card}>
+        <div style={{...sec,background:"#6b4a00"}}>
+          <span>💳 Advance Ledger</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Click employee to manage entries</span>
+        </div>
+        <table style={{borderCollapse:"collapse",width:"100%"}}>
+          <thead><tr>
+            <th style={{...thS,textAlign:"left",background:"#6b4a00"}}>Employee</th>
+            <th style={{...thS,background:"#6b4a00"}}>Total Advance</th>
+            <th style={{...thS,background:"#6b4a00"}}>Recovered</th>
+            <th style={{...thS,background:"#6b4a00"}}>Balance (deducted)</th>
+            <th style={{...thS,background:"#6b4a00"}}>Entries</th>
+          </tr></thead>
+          <tbody>{de.map((e,i)=>{
+            const bal=advBalance(e.id);
+            const rb=i%2===0?T.white:"#fdf8f0";
+            return(
+              <tr key={e.id} style={{background:rb,cursor:"pointer"}} onClick={()=>setAdvEmpId(e.id)}>
+                <td style={{...tdL,fontWeight:600,color:T.maroon,textDecoration:"underline"}}>{e.name}</td>
+                <td style={{...tdS,color:advTotal(e.id)>0?T.danger:T.muted,fontWeight:600}}>{advTotal(e.id)>0?`₹${fi(advTotal(e.id))}`:"—"}</td>
+                <td style={{...tdS,color:T.success,fontWeight:600}}>{advRecovered(e.id)>0?`₹${fi(advRecovered(e.id))}`:"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:bal>0?T.danger:bal<0?T.success:T.muted}}>{bal>0?`₹${fi(bal)}`:bal<0?`Overpaid ₹${fi(-bal)}`:"—"}</td>
+                <td style={{...tdS,color:T.muted}}>{getAdvEntries(e.id).length||"—"}</td>
+              </tr>
+            );
+          })}</tbody>
+          <tfoot><tr style={{background:"#6b4a00",color:"white"}}>
+            <td style={{...tdL,color:"white",fontWeight:700}}>TOTAL</td>
+            <td style={{...tdS,color:T.saffronL,fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+advTotal(e.id),0))}</td>
+            <td style={{...tdS,color:"#b8ffb8",fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+advRecovered(e.id),0))}</td>
+            <td style={{...tdS,color:"#ffb8b8",fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+advBalance(e.id),0))}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+
+      {/* Loan Ledger */}
+      <div style={card}>
+        <div style={{...sec,background:"#3d2200"}}>
+          <span>🏦 Loan Ledger</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Balance = OP Bal + Given − Deduction</span>
+        </div>
+        <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%"}}>
+          <thead><tr>
+            <th style={{...thS,textAlign:"left",background:"#3d2200",minWidth:130}}>Employee</th>
+            <th style={{...thS,background:"#5a3400",minWidth:110}}>OP Balance</th>
+            <th style={{...thS,background:"#1a5a00",minWidth:110}}>Given Now</th>
+            <th style={{...thS,background:"#6b1a1a",minWidth:110}}>Deduction</th>
+            <th style={{...thS,background:"#1a3d6b",minWidth:120}}>Balance</th>
+          </tr></thead>
+          <tbody>{de.map((e,i)=>{
+            const ln=loan[e.id]||{};const bal=lnBal(e);const rb=i%2===0?T.white:"#fdf8f0";
+            return <tr key={e.id}>
+              <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
+              <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))} </td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))} </td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))} </td>
+              <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
+                {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
+              </td>
+            </tr>;
+          })}</tbody>
+          <tfoot><tr style={{background:"#3d2200",color:"white"}}>
+            <td style={{...tdL,color:"white",fontWeight:700}}>TOTAL</td>
+            <td style={{...tdS,color:T.saffronL,fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ob),0))}</td>
+            <td style={{...tdS,color:"#b8ffb8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).given),0))}</td>
+            <td style={{...tdS,color:"#ffb8b8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ded),0))}</td>
+            <td style={{...tdS,color:"#aac4ff",fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+lnBal(e),0))}</td>
+          </tr></tfoot>
+        </table></div>
+      </div>
+
+      {/* PF, ESI */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+        {[
+          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
+          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
+        ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
+          <div key={key} style={card}>
+            <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
+            <table style={{borderCollapse:"collapse",width:"100%"}}>
+              <thead><tr><th style={{...thS,textAlign:"left",background:bg}}>Employee</th><th style={{...thS,background:bg}}>Amount (₹)</th></tr></thead>
+              <tbody>{de.map((e,i)=>{
+                const autoVal=auto?auto(e):null;
+                return(
+                  <tr key={e.id} style={{background:rowBg[i%2]}}>
+                    <td style={tdL}>
+                      <b>{e.name}</b>
+                      {autoVal!==null&&<span style={{marginLeft:6,fontSize:10,background:"#dbeafe",color:"#1e3a8a",padding:"1px 6px",borderRadius:8,fontWeight:700}}>Auto ₹{fi(autoVal)}</span>}
+                    </td>
+                    <td style={{...tdS,padding:"5px 8px"}}>
+                      {autoVal!==null
+                        ?<div style={{textAlign:"right",fontWeight:700,color:"#1e3a8a",fontSize:14}}>₹{fi(autoVal)}</div>
+                        :<input type="number" value={state[e.id]??""} onChange={ev=>write({[`${key}_${mkey}`]:{...state,[e.id]:ev.target.value}})} placeholder="0" style={{...inp(120),textAlign:"right",padding:"5px 7px"}}/>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+              <tfoot><tr style={{background:bg,color:"white"}}>
+                <td style={{...tdL,color:"white",fontWeight:700}}>Total</td>
+                <td style={{...tdS,color:tc,fontWeight:800}}>₹{fi(de.reduce((s,e)=>{const av=auto?auto(e):null;return s+(av!==null?av:fv(state[e.id]));},0))}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
   return(
     <div>
       {showCF&&<div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -566,49 +815,6 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
           </tr></tfoot>
         </table></div>
       </div>
-
-      {/* Advance, PF, ESI */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
-        {[
-          {title:"💳 Advance",sub:"Deducted this month, cleared next",bg:"#6b4a00",key:"adv",state:adv,rowBg:["white","#fdf8f0"],tc:T.saffronL,auto:null},
-          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
-        ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
-          <div key={key} style={card}>
-            <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
-            <table style={{borderCollapse:"collapse",width:"100%"}}>
-              <thead><tr><th style={{...thS,textAlign:"left",background:bg}}>Employee</th><th style={{...thS,background:bg}}>Amount (₹)</th></tr></thead>
-              <tbody>{de.map((e,i)=>{
-                const autoVal = auto ? auto(e) : null;
-                return (
-                  <tr key={e.id} style={{background:rowBg[i%2]}}>
-                    <td style={tdL}>
-                      <b>{e.name}</b>
-                      {autoVal!==null && <span style={{marginLeft:6,fontSize:10,background:"#dbeafe",color:"#1e3a8a",padding:"1px 6px",borderRadius:8,fontWeight:700}}>Auto ₹{fi(autoVal)}</span>}
-                    </td>
-                    <td style={{...tdS,padding:"5px 8px"}}>
-                      {autoVal!==null
-                        ? <div style={{textAlign:"right",fontWeight:700,color:"#1e3a8a",fontSize:14}}>₹{fi(autoVal)}</div>
-                        : <input type="number" value={state[e.id]??""} onChange={ev=>write({[`${key}_${mkey}`]:{...state,[e.id]:ev.target.value}})} placeholder="0" style={{...inp(120),textAlign:"right",padding:"5px 7px"}}/>
-                      }
-                    </td>
-                  </tr>
-                );
-              })}</tbody>
-              <tfoot><tr style={{background:bg,color:"white"}}>
-                <td style={{...tdL,color:"white",fontWeight:700}}>Total</td>
-                <td style={{...tdS,color:tc,fontWeight:800}}>₹{fi(de.reduce((s,e)=>{
-                  const av=auto?auto(e):null;
-                  return s+(av!==null?av:fv(state[e.id]));
-                },0))}</td>
-              </tr></tfoot>
-            </table>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ── PAYSLIPS ──────────────────────────────────────────────────────
 function PayslipTab({settle,depts,activeDept,month,year}){
