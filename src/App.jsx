@@ -214,7 +214,8 @@ function Main(){
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
     const lnBal=r2(lnOB+lnGiven-lnDed);
-    const pfAmt=r2(fv(pf[emp.id])),esiAmt=r2(fv(esi[emp.id]));
+    const pfAmt  = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
+    const esiAmt = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
     return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
@@ -569,25 +570,37 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       {/* Advance, PF, ESI */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
         {[
-          {title:"💳 Advance",sub:"Deducted this month, cleared next",bg:"#6b4a00",key:"adv",state:adv,rowBg:["white","#fdf8f0"],tc:T.saffronL},
-          {title:"🏛 PF Deduction",sub:"Provident Fund (recurring)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff"},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance (recurring)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda"},
-        ].map(({title,sub,bg,key,state,rowBg,tc})=>(
+          {title:"💳 Advance",sub:"Deducted this month, cleared next",bg:"#6b4a00",key:"adv",state:adv,rowBg:["white","#fdf8f0"],tc:T.saffronL,auto:null},
+          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
+          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
+        ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
           <div key={key} style={card}>
             <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
             <table style={{borderCollapse:"collapse",width:"100%"}}>
               <thead><tr><th style={{...thS,textAlign:"left",background:bg}}>Employee</th><th style={{...thS,background:bg}}>Amount (₹)</th></tr></thead>
-              <tbody>{de.map((e,i)=>(
-                <tr key={e.id} style={{background:rowBg[i%2]}}>
-                  <td style={tdL}><b>{e.name}</b></td>
-                  <td style={{...tdS,padding:"5px 8px"}}>
-                    <input type="number" value={state[e.id]??""} onChange={ev=>write({[key]:{...state,[e.id]:ev.target.value}})} placeholder="0" style={{...inp(120),textAlign:"right",padding:"5px 7px"}}/>
-                  </td>
-                </tr>
-              ))}</tbody>
+              <tbody>{de.map((e,i)=>{
+                const autoVal = auto ? auto(e) : null;
+                return (
+                  <tr key={e.id} style={{background:rowBg[i%2]}}>
+                    <td style={tdL}>
+                      <b>{e.name}</b>
+                      {autoVal!==null && <span style={{marginLeft:6,fontSize:10,background:"#dbeafe",color:"#1e3a8a",padding:"1px 6px",borderRadius:8,fontWeight:700}}>Auto ₹{fi(autoVal)}</span>}
+                    </td>
+                    <td style={{...tdS,padding:"5px 8px"}}>
+                      {autoVal!==null
+                        ? <div style={{textAlign:"right",fontWeight:700,color:"#1e3a8a",fontSize:14}}>₹{fi(autoVal)}</div>
+                        : <input type="number" value={state[e.id]??""} onChange={ev=>write({[`${key}_${mkey}`]:{...state,[e.id]:ev.target.value}})} placeholder="0" style={{...inp(120),textAlign:"right",padding:"5px 7px"}}/>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
               <tfoot><tr style={{background:bg,color:"white"}}>
                 <td style={{...tdL,color:"white",fontWeight:700}}>Total</td>
-                <td style={{...tdS,color:tc,fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+fv(state[e.id]),0))}</td>
+                <td style={{...tdS,color:tc,fontWeight:800}}>₹{fi(de.reduce((s,e)=>{
+                  const av=auto?auto(e):null;
+                  return s+(av!==null?av:fv(state[e.id]));
+                },0))}</td>
               </tr></tfoot>
             </table>
           </div>
@@ -734,16 +747,27 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
           {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:"Monthly Rate (₹)*",k:"rate",t:"number",ph:"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:16}}>
-            <input type="checkbox" id="fixedChk" checked={!!ed.fixed} onChange={e=>setEd(p=>({...p,fixed:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
-            <label htmlFor="fixedChk" style={{fontSize:12,fontWeight:700,color:T.maroon,cursor:"pointer"}}>Fixed Salary (full pay regardless of attendance)</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input type="checkbox" id="fixedChk" checked={!!ed.fixed} onChange={e=>setEd(p=>({...p,fixed:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+              <label htmlFor="fixedChk" style={{fontSize:12,fontWeight:700,color:T.maroon,cursor:"pointer"}}>Fixed Salary (full pay regardless of attendance)</label>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input type="checkbox" id="pfEsiChk" checked={!!ed.pfEsi} onChange={e=>setEd(p=>({...p,pfEsi:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+              <label htmlFor="pfEsiChk" style={{fontSize:12,fontWeight:700,color:"#1a3d6b",cursor:"pointer"}}>
+                PF &amp; ESI Eligible
+                {ed.pfEsi && ed.rate && <span style={{marginLeft:6,fontSize:11,color:T.muted,fontWeight:400}}>
+                  PF: ₹{Math.round(ed.rate*0.70*0.12)} · ESI: ₹{Math.round(ed.rate*0.70*0.0075)}
+                </span>}
+              </label>
+            </div>
           </div>
         </div>
         <div style={{display:"flex",gap:8,marginTop:12}}>
@@ -757,9 +781,12 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
           <tr key={e.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
             <td style={tdL}><b>{e.name}</b></td>
             <td style={{...tdS}}>
-              {e.fixed
-                ? <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Fixed</span>
-                : <span style={{background:"#e8f0eb",color:"#1a3d2b",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Attendance</span>}
+              <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
+                {e.fixed
+                  ? <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Fixed</span>
+                  : <span style={{background:"#e8f0eb",color:"#1a3d2b",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Attendance</span>}
+                {e.pfEsi && <span style={{background:"#dbeafe",color:"#1e3a8a",padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>PF+ESI</span>}
+              </div>
             </td>
             <td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>{e.fixed?"—":"₹"+fi(e.rate/26)}</td>
             <td style={{...tdS,color:fv(e.rent)>0?T.danger:T.muted}}>{fv(e.rent)>0?`₹${fi(e.rent)}`:"—"}</td>
