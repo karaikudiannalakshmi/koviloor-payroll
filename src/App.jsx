@@ -215,8 +215,8 @@ function Main(){
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
     const lnBal=r2(lnOB+lnGiven-lnDed);
-    const pfAmt  = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
-    const esiAmt = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
+    const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
+    const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
     return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
@@ -720,8 +720,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       {/* PF, ESI */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
         {[
-          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
+          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of actual salary earned (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.12):null},
+          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of actual salary earned (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.0075):null},
         ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
           <div key={key} style={card}>
             <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
@@ -910,7 +910,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               <label htmlFor="pfEsiChk" style={{fontSize:12,fontWeight:700,color:"#1a3d6b",cursor:"pointer"}}>
                 PF &amp; ESI Eligible
                 {ed.pfEsi && ed.rate && <span style={{marginLeft:6,fontSize:11,color:T.muted,fontWeight:400}}>
-                  PF: ₹{Math.round(ed.rate*0.70*0.12)} · ESI: ₹{Math.round(ed.rate*0.70*0.0075)}
+                  Max PF: ₹{Math.round(ed.rate*0.70*0.12)} · Max ESI: ₹{Math.round(ed.rate*0.70*0.0075)} (full attendance)</span>}
                 </span>}
               </label>
             </div>
