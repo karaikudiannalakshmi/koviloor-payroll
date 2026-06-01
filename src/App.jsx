@@ -910,7 +910,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               <label htmlFor="pfEsiChk" style={{fontSize:12,fontWeight:700,color:"#1a3d6b",cursor:"pointer"}}>
                 PF &amp; ESI Eligible
                 {ed.pfEsi && ed.rate && <span style={{marginLeft:6,fontSize:11,color:T.muted,fontWeight:400}}>
-                  Max PF: ₹{Math.round(ed.rate*0.70*0.12)} · Max ESI: ₹{Math.round(ed.rate*0.70*0.0075)} (full attendance)</span>}
+                  Max PF: ₹{Math.round(ed.rate*0.70*0.12)} · Max ESI: ₹{Math.round(ed.rate*0.70*0.0075)} (full attendance)
                 </span>}
               </label>
             </div>
