@@ -214,9 +214,13 @@ function Main(){
     const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given));
-    const lnEmi=r2(fv(ln.emi));                          // standing monthly EMI
-    const lnDed=r2(fv(ln.ded)??fv(ln.emi));             // this month deduction (defaults to EMI)
-    const lnBal=r2(lnOB+lnGiven-lnDed);
+    const lnEmi=r2(fv(ln.emi));                                      // standing monthly EMI
+    const lnTotal=r2(lnOB+lnGiven);                                  // total outstanding before this month
+    // Auto-deduct: EMI, but capped at outstanding balance; manual override via ln.ded
+    const lnDed=ln.ded!=null&&ln.ded!==""
+      ? r2(Math.min(fv(ln.ded), lnTotal))                            // manual override, still capped
+      : r2(Math.min(lnEmi, lnTotal));                                 // auto: EMI capped at balance
+    const lnBal=r2(lnTotal-lnDed);
     const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
     const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
@@ -504,7 +508,14 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
   const [advForm,setAdvForm]=useState({date:"",amount:""});
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(x=>x.id===activeDept);
-  const lnBal=e=>{const ln=loan[e.id]||{};return r2(fv(ln.ob)+fv(ln.given)-fv(ln.ded));};
+  const lnBal=e=>{
+    const ln=loan[e.id]||{};
+    const total=r2(fv(ln.ob)+fv(ln.given));
+    const ded=ln.ded!=null&&ln.ded!==""
+      ? r2(Math.min(fv(ln.ded),total))
+      : r2(Math.min(fv(ln.emi),total));
+    return r2(total-ded);
+  };
   const carryForward=()=>{
     // Calculate next month/year
     const nm=month===12?1:month+1;
@@ -736,7 +747,10 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
               <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f5eefa":"#ede0f5"}}>{NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))} </td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded??ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))} </td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>
+                {NI(ln.ded??ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}
+                {(()=>{const tot=r2(fv(ln.ob)+fv(ln.given));const autoD=ln.ded!=null&&ln.ded!==""?r2(Math.min(fv(ln.ded),tot)):r2(Math.min(fv(ln.emi),tot));const isCapped=autoD<fv(ln.emi)&&fv(ln.emi)>0;return isCapped&&tot>0?<span style={{fontSize:9,color:"#d4780a",display:"block",marginTop:2}}>↑ capped at ₹{fi(autoD)}</span>:null;})()}
+              </td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
               </td>
