@@ -204,7 +204,7 @@ function Main(){
 
   const settle=useMemo(()=>monthEmps.map(emp=>{
     const isFixed=!!emp.fixed;
-    const dr=emp.rate/26;let dw2=0;
+    const dr=emp.rate/24;let dw2=0;
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
     const baseSal=isFixed?r2(emp.rate):r2(dr*dw2);
@@ -215,8 +215,8 @@ function Main(){
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
     const lnBal=r2(lnOB+lnGiven-lnDed);
-    const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
-    const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
+    const pfAmt  = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
+    const esiAmt = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
     return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
@@ -720,8 +720,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       {/* PF, ESI */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
         {[
-          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of actual salary earned (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.12):null},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of actual salary earned (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.0075):null},
+          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
+          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
         ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
           <div key={key} style={card}>
             <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
@@ -836,40 +836,78 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
   const rows=settle.filter(s=>s.emp.deptId===activeDept&&s.net>0&&s.emp.acc);
   const total=rows.reduce((s,r)=>s+r.net,0);
   const narr=`Salary ${MONTHS[month].substr(0,3)}${String(year).substr(2)}`;
-  const copyCSV=()=>{
-    const hdr="PYMT_PROD_TYPE_CODE,PYMT_MODE,DEBIT_ACC_NO,BNF_NAME,BENE_ACC_NO,BENE_IFSC,AMOUNT,DEBIT_NARR,CREDIT_NARR\n";
-    const body=rows.map(s=>`PAB_VENDOR,NEFT,${dbAcc},${s.emp.bankName||s.emp.name},${s.emp.acc},${s.emp.ifsc},${Math.round(s.net)},${narr},${narr}`).join("\n");
-    navigator.clipboard.writeText(hdr+body).then(()=>alert("✅ CSV copied!"));
+
+  const downloadXLS=()=>{
+    // Dynamically load SheetJS
+    const script=document.createElement("script");
+    script.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    script.onload=()=>{
+      const XLSX=window.XLSX;
+      const header=[
+        "Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))",
+        "Amount (₹)\n(Should not be more than 15 digit including decimals and paise)",
+        "Debit Account no\nShould be exactly 12 digit",
+        "IFSC (Always 11 character alphanumeric and 5th character always 0 (zero)) (For ICICI bank accounts keep it blank)",
+        "Beneficiary Account No (Max length for other bank 34 character alphanumeric and for ICICI Bank 12 digit number )",
+        "Beneficiary Name (Max length 32 Character) (No Special Character is allowed but Space is allowed)",
+        "Remarks for Client\n(should not be more than 21 characters)",
+        "Remarks for Beneficiary\n(should not be more than 30 characters)"
+      ];
+      const dataRows=rows.map(s=>{
+        // WIB for ICICI bank accounts, NFT (NEFT) for others
+        const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
+        const ifsc=txnType==="WIB"?"":s.emp.ifsc;
+        const bName=(s.emp.bankName||s.emp.name).substring(0,32).replace(/[^a-zA-Z0-9 ]/g,"");
+        return [txnType,Math.round(s.net),dbAcc,ifsc,s.emp.acc,bName,narr,narr];
+      });
+      const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
+      // Column widths matching template
+      ws["!cols"]=[{wch:18},{wch:20},{wch:20},{wch:30},{wch:34},{wch:32},{wch:22},{wch:30}];
+      const wb2=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
+      XLSX.writeFile(wb2,`PAB_Salary_${MONTHS[month]}_${year}.xls`,{bookType:"xls"});
+    };
+    document.head.appendChild(script);
   };
+
   return(
     <div>
       <div style={{...card,marginBottom:12}}>
         <div style={sec}><span>🏦 Bank Upload — {dept?.name} — {MONTHS[month]} {year}</span></div>
         <div style={{padding:14,display:"flex",gap:14,alignItems:"flex-end",flexWrap:"wrap"}}>
           <div><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>DEBIT ACCOUNT</label><input value={dbAcc} onChange={e=>write({dbAcc:e.target.value})} style={{...inp(200),fontFamily:"monospace"}} placeholder="Institution account number"/></div>
-          <button onClick={copyCSV} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>📋 Copy CSV</button>
+          <button onClick={downloadXLS} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>⬇️ Download PAB XLS</button>
           <div style={{marginLeft:"auto",background:T.saffronPale,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
             <div style={{fontSize:10,color:T.muted,fontWeight:700}}>TOTAL TO TRANSFER</div>
             <div style={{fontSize:22,fontWeight:900,color:T.maroon}}>₹{fi(total)}</div>
-            <div style={{fontSize:11,color:T.muted}}>{rows.length} employees</div>
+            <div style={{fontSize:11,color:T.muted}}>{rows.length} employees · {MONTHS[month]} {year}</div>
           </div>
+        </div>
+        <div style={{padding:"0 14px 12px",fontSize:11,color:T.muted}}>
+          ℹ️ ICICI bank accounts → WIB (IFSC blank) · Other banks → NFT (NEFT) · Salary basis: 24 working days/month
         </div>
       </div>
       <div style={card}>
         <div style={sec}>Payment Details</div>
         <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%"}}>
           <thead><tr>
-            <th style={{...thS,textAlign:"left"}}>Employee</th><th style={{...thS,textAlign:"left"}}>Bank</th>
-            <th style={{...thS,textAlign:"left"}}>Account No.</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Net Pay</th>
+            <th style={{...thS,textAlign:"left"}}>Employee</th>
+            <th style={{...thS,textAlign:"left"}}>Txn Type</th>
+            <th style={{...thS,textAlign:"left"}}>Account No.</th>
+            <th style={{...thS,textAlign:"left"}}>IFSC</th>
+            <th style={thS}>Net Pay</th>
           </tr></thead>
-          <tbody>{settle.filter(s=>s.emp.deptId===activeDept).map((s,i)=>(
+          <tbody>{settle.filter(s=>s.emp.deptId===activeDept).map((s,i)=>{
+            const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
+            return(
             <tr key={s.emp.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
-              <td style={tdL}><b>{s.emp.name}</b></td><td style={tdL}>{s.emp.bankName||"—"}</td>
+              <td style={tdL}><b>{s.emp.name}</b></td>
+              <td style={{...tdS,fontWeight:700,color:txnType==="WIB"?T.blue:T.green}}>{txnType}</td>
               <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.acc||<span style={{color:T.muted,fontStyle:"italic"}}>Not set</span>}</td>
               <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.ifsc||"—"}</td>
               <td style={{...tdS,fontWeight:700,color:s.net>0?T.maroon:T.muted}}>₹{fi(s.net)}</td>
             </tr>
-          ))}</tbody>
+          )})}</tbody>
         </table></div>
       </div>
     </div>
@@ -910,7 +948,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               <label htmlFor="pfEsiChk" style={{fontSize:12,fontWeight:700,color:"#1a3d6b",cursor:"pointer"}}>
                 PF &amp; ESI Eligible
                 {ed.pfEsi && ed.rate && <span style={{marginLeft:6,fontSize:11,color:T.muted,fontWeight:400}}>
-                  Max PF: ₹{Math.round(ed.rate*0.70*0.12)} · Max ESI: ₹{Math.round(ed.rate*0.70*0.0075)} (full attendance)
+                  PF: ₹{Math.round(ed.rate*0.70*0.12)} · ESI: ₹{Math.round(ed.rate*0.70*0.0075)}
                 </span>}
               </label>
             </div>
@@ -934,7 +972,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
                 {e.pfEsi && <span style={{background:"#dbeafe",color:"#1e3a8a",padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>PF+ESI</span>}
               </div>
             </td>
-            <td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>{e.fixed?"—":"₹"+fi(e.rate/26)}</td>
+            <td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>{e.fixed?"—":"₹"+fi(e.rate/24)}</td>
             <td style={{...tdS,color:fv(e.rent)>0?T.danger:T.muted}}>{fv(e.rent)>0?`₹${fi(e.rent)}`:"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.acc||"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.ifsc||"—"}</td>
