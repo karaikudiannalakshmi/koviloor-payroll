@@ -213,13 +213,15 @@ function Main(){
     const advEntries=Array.isArray(adv[emp.id])?adv[emp.id]:[];
     const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
     const ln=loan[emp.id]||{};
-    const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given)),lnDed=r2(fv(ln.ded));
+    const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given));
+    const lnEmi=r2(fv(ln.emi));                          // standing monthly EMI
+    const lnDed=r2(fv(ln.ded)??fv(ln.emi));             // this month deduction (defaults to EMI)
     const lnBal=r2(lnOB+lnGiven-lnDed);
-    const pfAmt  = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
-    const esiAmt = emp.pfEsi ? r2(r2(emp.rate * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
+    const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
+    const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
-    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
+    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnEmi,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
   }),[monthEmps,d,adv,loan,pf,esi,nd,year,month]);
 
   const exportData=()=>{
@@ -504,18 +506,45 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
   const dept=depts.find(x=>x.id===activeDept);
   const lnBal=e=>{const ln=loan[e.id]||{};return r2(fv(ln.ob)+fv(ln.given)-fv(ln.ded));};
   const carryForward=()=>{
-    // Carry forward unrecovered advance balance to next month
-    const nl={};emps.forEach(e=>{const b=lnBal(e);nl[e.id]={ob:b>0?b:0,given:"",ded:""};});
-    // For advances, carry forward the balance as opening balance for next month
+    // Calculate next month/year
+    const nm=month===12?1:month+1;
+    const ny=month===12?year+1:year;
+    const nmkey=`${ny}_${nm}`;
+
+    // Loan: next month OB = current balance, EMI carries forward, given & ded reset
+    const nlNext={};
+    emps.forEach(e=>{
+      const bal=lnBal(e);
+      const ln=loan[e.id]||{};
+      const emi=r2(fv(ln.emi)); // standing EMI carries forward
+      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||"",ded:""}; // ded blank so it shows EMI by default
+    });
+
+    // Advance: carry forward unrecovered balance to next month
     const advNext={};
     emps.forEach(e=>{
       const entries=Array.isArray(adv[e.id])?adv[e.id]:[];
       const total=entries.reduce((s,x)=>s+fv(x.amount),0);
       const recovered=entries.reduce((s,x)=>s+fv(x.recovered),0);
-      const bal=total-recovered;
-      if(bal>0) advNext[e.id]=[{date:`${year}-${String(month).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
+      const bal=r2(total-recovered);
+      if(bal>0) advNext[e.id]=[{date:`${ny}-${String(nm).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
     });
-    write({[`loan_${mkey}`]:nl,[`adv_${mkey}`]:advNext});setShowCF(false);showToast("✅ Carried forward");
+
+    // PF/ESI carry forward to next month
+    const pfNext={};const esiNext={};
+    emps.forEach(e=>{
+      if(pf[e.id]) pfNext[e.id]=pf[e.id];
+      if(esi[e.id]) esiNext[e.id]=esi[e.id];
+    });
+
+    write({
+      [`loan_${nmkey}`]:nlNext,
+      [`adv_${nmkey}`]:advNext,
+      [`pf_${nmkey}`]:pfNext,
+      [`esi_${nmkey}`]:esiNext,
+    });
+    setShowCF(false);
+    showToast(`✅ Carried forward to ${MONTHS[nm]} ${ny}`);
   };
 
   // Advance helpers
@@ -543,24 +572,28 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
   );
   return(
     <div>
-      {showCF&&<div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      {showCF&&(()=>{const nm=month===12?1:month+1;const ny=month===12?year+1:year;return(
+      <div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:T.white,borderRadius:12,padding:28,width:440,maxWidth:"95vw",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
           <div style={{textAlign:"center",fontSize:36,marginBottom:10}}>🔄</div>
-          <div style={{fontWeight:800,fontSize:15,color:T.maroon,textAlign:"center",marginBottom:12}}>New Month Carry Forward</div>
+          <div style={{fontWeight:800,fontSize:15,color:T.maroon,textAlign:"center",marginBottom:12}}>
+            Carry Forward → {MONTHS[nm]} {ny}
+          </div>
           <div style={{fontSize:13,color:T.muted,background:T.saffronPale,padding:14,borderRadius:8,lineHeight:2,marginBottom:20}}>
-            ✅ Employee list snapshot saved for this month<br/>
-            ✅ Loan Balance → new Opening Balance<br/>
-            ✅ Loan Given &amp; Deduction reset to zero<br/>
-            ✅ Advance balance carried forward<br/>
-            ✅ PF &amp; ESI kept<br/>
-            <span style={{color:T.danger,fontWeight:600}}>⚠ Export data first</span>
+            ✅ Loan Balance → Opening Balance for {MONTHS[nm]}<br/>
+            ✅ Monthly EMI → carried forward (auto-fills deduction)<br/>
+            ✅ Loan Given reset to zero<br/>
+            ✅ Advance balance carried forward as B/F<br/>
+            ✅ PF &amp; ESI carried forward<br/>
+            <span style={{color:T.danger,fontWeight:600}}>⚠ Export / download data first before proceeding</span>
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"center"}}>
             <button onClick={()=>setShowCF(false)} style={btn("#e8d5b0",T.text)}>Cancel</button>
-            <button onClick={carryForward} style={btn(T.maroon)}>✅ Carry Forward</button>
+            <button onClick={carryForward} style={btn(T.maroon)}>✅ Carry Forward to {MONTHS[nm]}</button>
           </div>
         </div>
-      </div>}
+      </div>
+      );})()}
 
       {/* Advance Ledger modal */}
       {advEmpId&&(()=>{
@@ -685,14 +718,15 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       <div style={card}>
         <div style={{...sec,background:"#3d2200"}}>
           <span>🏦 Loan Ledger</span>
-          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Balance = OP Bal + Given − Deduction</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Balance = OP Bal + Given − Deduction · EMI auto-carries to next month</span>
         </div>
         <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%"}}>
           <thead><tr>
             <th style={{...thS,textAlign:"left",background:"#3d2200",minWidth:130}}>Employee</th>
             <th style={{...thS,background:"#5a3400",minWidth:110}}>OP Balance</th>
             <th style={{...thS,background:"#1a5a00",minWidth:110}}>Given Now</th>
-            <th style={{...thS,background:"#6b1a1a",minWidth:110}}>Deduction</th>
+            <th style={{...thS,background:"#5a1a6b",minWidth:110}}>Monthly EMI</th>
+            <th style={{...thS,background:"#6b1a1a",minWidth:110}}>This Month Ded.</th>
             <th style={{...thS,background:"#1a3d6b",minWidth:120}}>Balance</th>
           </tr></thead>
           <tbody>{de.map((e,i)=>{
@@ -701,7 +735,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
               <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
               <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))} </td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))} </td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f5eefa":"#ede0f5"}}>{NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))} </td>
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>{NI(ln.ded??ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))} </td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
               </td>
@@ -711,7 +746,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
             <td style={{...tdL,color:"white",fontWeight:700}}>TOTAL</td>
             <td style={{...tdS,color:T.saffronL,fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ob),0))}</td>
             <td style={{...tdS,color:"#b8ffb8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).given),0))}</td>
-            <td style={{...tdS,color:"#ffb8b8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ded),0))}</td>
+            <td style={{...tdS,color:"#ddaaff",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).emi),0))}</td>
+            <td style={{...tdS,color:"#ffb8b8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ded??(loan[e.id]||{}).emi),0))}</td>
             <td style={{...tdS,color:"#aac4ff",fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+lnBal(e),0))}</td>
           </tr></tfoot>
         </table></div>
@@ -720,8 +756,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       {/* PF, ESI */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
         {[
-          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of salary (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(e.rate*0.70*0.12):null},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of salary (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(e.rate*0.70*0.0075):null},
+          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of actual salary earned (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.12):null},
+          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of actual salary earned (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.0075):null},
         ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
           <div key={key} style={card}>
             <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
@@ -836,9 +872,7 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
   const rows=settle.filter(s=>s.emp.deptId===activeDept&&s.net>0&&s.emp.acc);
   const total=rows.reduce((s,r)=>s+r.net,0);
   const narr=`Salary ${MONTHS[month].substr(0,3)}${String(year).substr(2)}`;
-
   const downloadXLS=()=>{
-    // Dynamically load SheetJS
     const script=document.createElement("script");
     script.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     script.onload=()=>{
@@ -854,14 +888,12 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
         "Remarks for Beneficiary\n(should not be more than 30 characters)"
       ];
       const dataRows=rows.map(s=>{
-        // WIB for ICICI bank accounts, NFT (NEFT) for others
         const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
         const ifsc=txnType==="WIB"?"":s.emp.ifsc;
         const bName=(s.emp.bankName||s.emp.name).substring(0,32).replace(/[^a-zA-Z0-9 ]/g,"");
         return [txnType,Math.round(s.net),dbAcc,ifsc,s.emp.acc,bName,narr,narr];
       });
       const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
-      // Column widths matching template
       ws["!cols"]=[{wch:18},{wch:20},{wch:20},{wch:30},{wch:34},{wch:32},{wch:22},{wch:30}];
       const wb2=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
@@ -869,7 +901,6 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
     };
     document.head.appendChild(script);
   };
-
   return(
     <div>
       <div style={{...card,marginBottom:12}}>
@@ -899,15 +930,14 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
           </tr></thead>
           <tbody>{settle.filter(s=>s.emp.deptId===activeDept).map((s,i)=>{
             const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
-            return(
-            <tr key={s.emp.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
+            return(<tr key={s.emp.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
               <td style={tdL}><b>{s.emp.name}</b></td>
               <td style={{...tdS,fontWeight:700,color:txnType==="WIB"?T.blue:T.green}}>{txnType}</td>
               <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.acc||<span style={{color:T.muted,fontStyle:"italic"}}>Not set</span>}</td>
               <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.ifsc||"—"}</td>
               <td style={{...tdS,fontWeight:700,color:s.net>0?T.maroon:T.muted}}>₹{fi(s.net)}</td>
-            </tr>
-          )})}</tbody>
+            </tr>);
+          })}</tbody>
         </table></div>
       </div>
     </div>
