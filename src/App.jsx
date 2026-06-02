@@ -204,11 +204,13 @@ function Main(){
 
   const settle=useMemo(()=>monthEmps.map(emp=>{
     const isFixed=!!emp.fixed;
-    const dr=emp.rate/24;let dw2=0;
+    const isDaily=!!emp.daily;                          // daily wage: rate = per-day amount
+    const dr=isDaily?emp.rate:emp.rate/24;              // daily rate
+    let dw2=0;
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
     const baseSal=isFixed?r2(emp.rate):r2(dr*dw2);
-    const otPay=isFixed?0:r2(otH*(dr/8));
+    const otPay=(isFixed||isDaily)?0:r2(otH*(dr/8));   // no OT for daily wage workers
     const gross=r2(baseSal+otPay);
     const advEntries=Array.isArray(adv[emp.id])?adv[emp.id]:[];
     const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
@@ -383,7 +385,7 @@ function LoginModal({onLogin}){
 // ── ATTENDANCE ────────────────────────────────────────────────────
 function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write,isOperator}){
   const [mode,setMode]=useState("att");
-  // Operators only see attendance-based employees (not fixed salary)
+  // Operators only see attendance-based and daily wage employees (not fixed salary)
   const de=emps.filter(e=>e.deptId===activeDept && (isOperator ? !e.fixed : true));
   const dept=depts.find(d=>d.id===activeDept);
   const markAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
@@ -415,7 +417,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
               return <tr key={emp.id}>
                 <td style={{...tdL,background:rb,position:"sticky",left:0,zIndex:1,fontWeight:600}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
-                    <span>{emp.name}{emp.fixed&&<span style={{marginLeft:5,background:"#fef3c7",color:"#92400e",padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700}}>FIXED</span>}</span>
+                    <span>{emp.name}{emp.fixed&&<span style={{marginLeft:5,background:"#fef3c7",color:"#92400e",padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700}}>FIXED</span>}{emp.daily&&<span style={{marginLeft:5,background:"#dcfce7",color:"#14532d",padding:"1px 6px",borderRadius:8,fontSize:9,fontWeight:700}}>DAILY</span>}</span>
                     {mode==="att"&&role==="admin"&&<div style={{display:"flex",gap:3}}>
                       <button type="button" onClick={()=>markAll(emp.id)} style={{...btn(T.success,"white",true),padding:"2px 6px",fontSize:10}}>All</button>
                       <button type="button" onClick={()=>clrAll(emp.id)} style={{...btn("#e8d5b0",T.text,true),padding:"2px 6px",fontSize:10}}>Clr</button>
@@ -969,17 +971,21 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:"Monthly Rate (₹)*",k:"rate",t:"number",ph:"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
+          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:ed.daily?"Daily Wage Rate (₹)*":"Monthly Rate (₹)*",k:"rate",t:"number",ph:ed.daily?"e.g. 400 per day":"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
           <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <input type="checkbox" id="fixedChk" checked={!!ed.fixed} onChange={e=>setEd(p=>({...p,fixed:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+              <input type="checkbox" id="fixedChk" checked={!!ed.fixed} onChange={e=>setEd(p=>({...p,fixed:e.target.checked,daily:false}))} style={{width:16,height:16,cursor:"pointer"}}/>
               <label htmlFor="fixedChk" style={{fontSize:12,fontWeight:700,color:T.maroon,cursor:"pointer"}}>Fixed Salary (full pay regardless of attendance)</label>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input type="checkbox" id="dailyChk" checked={!!ed.daily} onChange={e=>setEd(p=>({...p,daily:e.target.checked,fixed:false}))} style={{width:16,height:16,cursor:"pointer"}}/>
+              <label htmlFor="dailyChk" style={{fontSize:12,fontWeight:700,color:"#1a4d00",cursor:"pointer"}}>Daily Wage (rate = per day · no OT · paid only for days present)</label>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <input type="checkbox" id="pfEsiChk" checked={!!ed.pfEsi} onChange={e=>setEd(p=>({...p,pfEsi:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
@@ -1006,11 +1012,14 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
               <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"center"}}>
                 {e.fixed
                   ? <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Fixed</span>
+                  : e.daily
+                  ? <span style={{background:"#dcfce7",color:"#14532d",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Daily Wage</span>
                   : <span style={{background:"#e8f0eb",color:"#1a3d2b",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>Attendance</span>}
                 {e.pfEsi && <span style={{background:"#dbeafe",color:"#1e3a8a",padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>PF+ESI</span>}
               </div>
             </td>
-            <td style={tdS}>₹{fi(e.rate)}</td><td style={tdS}>{e.fixed?"—":"₹"+fi(e.rate/24)}</td>
+            <td style={tdS}>₹{fi(e.rate)}</td>
+            <td style={tdS}>{e.fixed?"—":e.daily?<span style={{color:"#14532d",fontWeight:700}}>₹{fi(e.rate)}/day</span>:"₹"+fi(e.rate/24)}</td>
             <td style={{...tdS,color:fv(e.rent)>0?T.danger:T.muted}}>{fv(e.rent)>0?`₹${fi(e.rent)}`:"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.acc||"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.ifsc||"—"}</td>
