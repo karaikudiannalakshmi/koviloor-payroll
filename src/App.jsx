@@ -436,7 +436,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
                   }else{
                     const val=got(emp.id,d);const num=fv(val);
                     return <td key={d} style={{padding:"2px 1px",background:rb,borderLeft:`1px solid ${T.border}`}}>
-                      {dw!==0&&<input type="number" step="0.5" value={val} onChange={e=>sot(emp.id,d,e.target.value)} placeholder="0" style={{...inp(44),textAlign:"center",fontSize:11,padding:"3px 2px",background:num>0?"#edf7f2":"white"}}/>}
+                      {<input type="number" step="0.5" value={val} onChange={e=>sot(emp.id,d,e.target.value)} placeholder="0" style={{...inp(44),textAlign:"center",fontSize:11,padding:"3px 2px",background:num>0?"#edf7f2":"white"}}/>}
                     </td>;
                   }
                 })}
