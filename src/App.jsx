@@ -210,7 +210,7 @@ function Main(){
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
     const baseSal=isFixed?r2(emp.rate):r2(dr*dw2);
-    const otPay=(isFixed||isDaily)?0:r2(otH*(dr/8));   // no OT for daily wage workers
+    const otPay=isFixed?0:r2(otH*(dr/8));
     const gross=r2(baseSal+otPay);
     const advEntries=Array.isArray(adv[emp.id])?adv[emp.id]:[];
     const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
@@ -985,7 +985,7 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
             </div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <input type="checkbox" id="dailyChk" checked={!!ed.daily} onChange={e=>setEd(p=>({...p,daily:e.target.checked,fixed:false}))} style={{width:16,height:16,cursor:"pointer"}}/>
-              <label htmlFor="dailyChk" style={{fontSize:12,fontWeight:700,color:"#1a4d00",cursor:"pointer"}}>Daily Wage (rate = per day · no OT · paid only for days present)</label>
+              <label htmlFor="dailyChk" style={{fontSize:12,fontWeight:700,color:"#1a4d00",cursor:"pointer"}}>Daily Wage (rate = per day · paid only for days present)</label>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <input type="checkbox" id="pfEsiChk" checked={!!ed.pfEsi} onChange={e=>setEd(p=>({...p,pfEsi:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
