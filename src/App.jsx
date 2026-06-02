@@ -214,12 +214,9 @@ function Main(){
     const advAmt=r2(advEntries.reduce((s,x)=>s+Math.max(0,fv(x.amount)-fv(x.recovered)),0));
     const ln=loan[emp.id]||{};
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given));
-    const lnEmi=r2(fv(ln.emi));                                      // standing monthly EMI
-    const lnTotal=r2(lnOB+lnGiven);                                  // total outstanding before this month
-    // Auto-deduct: EMI, but capped at outstanding balance; manual override via ln.ded
-    const lnDed=ln.ded!=null&&ln.ded!==""
-      ? r2(Math.min(fv(ln.ded), lnTotal))                            // manual override, still capped
-      : r2(Math.min(lnEmi, lnTotal));                                 // auto: EMI capped at balance
+    const lnEmi=r2(fv(ln.emi));
+    const lnTotal=r2(lnOB+lnGiven);
+    const lnDed=r2(Math.min(lnEmi,lnTotal));   // auto: EMI capped at outstanding balance
     const lnBal=r2(lnTotal-lnDed);
     const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
     const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
@@ -511,10 +508,7 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
   const lnBal=e=>{
     const ln=loan[e.id]||{};
     const total=r2(fv(ln.ob)+fv(ln.given));
-    const ded=ln.ded!=null&&ln.ded!==""
-      ? r2(Math.min(fv(ln.ded),total))
-      : r2(Math.min(fv(ln.emi),total));
-    return r2(total-ded);
+    return r2(total-Math.min(fv(ln.emi),total));
   };
   const carryForward=()=>{
     // Calculate next month/year
@@ -527,8 +521,8 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
     emps.forEach(e=>{
       const bal=lnBal(e);
       const ln=loan[e.id]||{};
-      const emi=r2(fv(ln.emi)); // standing EMI carries forward
-      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||"",ded:""}; // ded blank so it shows EMI by default
+      const emi=r2(fv(ln.emi));
+      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
     });
 
     // Advance: carry forward unrecovered balance to next month
@@ -729,7 +723,7 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       <div style={card}>
         <div style={{...sec,background:"#3d2200"}}>
           <span>🏦 Loan Ledger</span>
-          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Balance = OP Bal + Given − Deduction · EMI auto-carries to next month</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Balance = OP Bal + Given − EMI · Auto-deducts monthly till zero</span>
         </div>
         <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%"}}>
           <thead><tr>
@@ -737,19 +731,20 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
             <th style={{...thS,background:"#5a3400",minWidth:110}}>OP Balance</th>
             <th style={{...thS,background:"#1a5a00",minWidth:110}}>Given Now</th>
             <th style={{...thS,background:"#5a1a6b",minWidth:110}}>Monthly EMI</th>
-            <th style={{...thS,background:"#6b1a1a",minWidth:110}}>This Month Ded.</th>
             <th style={{...thS,background:"#1a3d6b",minWidth:120}}>Balance</th>
           </tr></thead>
           <tbody>{de.map((e,i)=>{
             const ln=loan[e.id]||{};const bal=lnBal(e);const rb=i%2===0?T.white:"#fdf8f0";
+            const tot=r2(fv(ln.ob)+fv(ln.given));
+            const actualDed=r2(Math.min(fv(ln.emi),tot));
+            const isCapped=actualDed<fv(ln.emi)&&fv(ln.emi)>0&&tot>0;
             return <tr key={e.id}>
               <td style={{...tdL,background:rb}}><b>{e.name}</b></td>
               <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))} </td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f5eefa":"#ede0f5"}}>{NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))} </td>
-              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#fef5f5":"#fdeae8"}}>
-                {NI(ln.ded??ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ded:ev.target.value}}}))}
-                {(()=>{const tot=r2(fv(ln.ob)+fv(ln.given));const autoD=ln.ded!=null&&ln.ded!==""?r2(Math.min(fv(ln.ded),tot)):r2(Math.min(fv(ln.emi),tot));const isCapped=autoD<fv(ln.emi)&&fv(ln.emi)>0;return isCapped&&tot>0?<span style={{fontSize:9,color:"#d4780a",display:"block",marginTop:2}}>↑ capped at ₹{fi(autoD)}</span>:null;})()}
+              <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f5eefa":"#ede0f5"}}>
+                {NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))}
+                {isCapped&&<span style={{fontSize:9,color:"#d4780a",display:"block",marginTop:2}}>↑ last EMI: ₹{fi(actualDed)}</span>}
               </td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
@@ -761,7 +756,6 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
             <td style={{...tdS,color:T.saffronL,fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ob),0))}</td>
             <td style={{...tdS,color:"#b8ffb8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).given),0))}</td>
             <td style={{...tdS,color:"#ddaaff",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).emi),0))}</td>
-            <td style={{...tdS,color:"#ffb8b8",fontWeight:700}}>₹{fi(de.reduce((s,e)=>s+fv((loan[e.id]||{}).ded??(loan[e.id]||{}).emi),0))}</td>
             <td style={{...tdS,color:"#aac4ff",fontWeight:800}}>₹{fi(de.reduce((s,e)=>s+lnBal(e),0))}</td>
           </tr></tfoot>
         </table></div>
