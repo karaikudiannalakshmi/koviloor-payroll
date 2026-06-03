@@ -191,6 +191,65 @@ function Main(){
   // Historical employees for this month (survives later deletions/resignations)
   const monthEmps = d[`emps_${mkey}`] || emps;
 
+  const [showCF,setShowCF]=useState(false);
+
+  const carryForward=()=>{
+    const nm=month===12?1:month+1;
+    const ny=month===12?year+1:year;
+    const nmkey=`${ny}_${nm}`;
+
+    // 1. Departments — carry as-is
+    // (depts is a top-level field, already shared; no action needed unless new month key required)
+
+    // 2. Employees — snapshot current emps into next month key
+    const empsNext=emps; // carry live master
+    
+    // 3. Loans — OB = closing balance, EMI carries, given reset
+    const lnBal=e=>{
+      const ln=(d[`loan_${mkey}`]||{})[e.id]||{};
+      const total=r2(fv(ln.ob)+fv(ln.given));
+      return r2(total-Math.min(fv(ln.emi),total));
+    };
+    const loanCurr=d[`loan_${mkey}`]||{};
+    const nlNext={};
+    emps.forEach(e=>{
+      const bal=lnBal(e);
+      const ln=loanCurr[e.id]||{};
+      const emi=r2(fv(ln.emi));
+      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
+    });
+
+    // 4. Advances — carry unrecovered balance as B/F
+    const advCurr=d[`adv_${mkey}`]||{};
+    const advNext={};
+    emps.forEach(e=>{
+      const entries=Array.isArray(advCurr[e.id])?advCurr[e.id]:[];
+      const total=entries.reduce((s,x)=>s+fv(x.amount),0);
+      const recovered=entries.reduce((s,x)=>s+fv(x.recovered),0);
+      const bal=r2(total-recovered);
+      if(bal>0) advNext[e.id]=[{date:`${ny}-${String(nm).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
+    });
+
+    // 5. PF & ESI — carry as-is
+    const pfCurr=d[`pf_${mkey}`]||{};
+    const esiCurr=d[`esi_${mkey}`]||{};
+    const pfNext={};const esiNext={};
+    emps.forEach(e=>{
+      if(pfCurr[e.id]) pfNext[e.id]=pfCurr[e.id];
+      if(esiCurr[e.id]) esiNext[e.id]=esiCurr[e.id];
+    });
+
+    write({
+      [`emps_${nmkey}`]:empsNext,
+      [`loan_${nmkey}`]:nlNext,
+      [`adv_${nmkey}`]:advNext,
+      [`pf_${nmkey}`]:pfNext,
+      [`esi_${nmkey}`]:esiNext,
+    });
+    setShowCF(false);
+    showToast(`✅ All data carried forward to ${MONTHS[nm]} ${ny}`);
+  };
+
   const mattObj=d[`att_${mkey}`]||{};
   const motObj=d[`ot_${mkey}`]||{};
   const adv=d[`adv_${mkey}`]||{};
@@ -275,6 +334,7 @@ function Main(){
               <div style={{width:1,height:22,background:"rgba(255,255,255,0.2)"}}/>
               <button onClick={exportData} style={{...btn("rgba(212,120,10,0.4)",T.saffronL,true),border:"1px solid rgba(212,120,10,0.5)"}}>⬇ Export</button>
               <button onClick={()=>importRef.current.click()} style={{...btn("rgba(255,255,255,0.1)","rgba(255,255,255,0.8)",true),border:"1px solid rgba(255,255,255,0.2)"}}>⬆ Import</button>
+              <button onClick={()=>setShowCF(true)} style={{...btn("rgba(26,93,0,0.5)","#90ff70",true),border:"1px solid rgba(90,200,50,0.5)",fontWeight:800}}>🔄 Carry Fwd</button>
               <div style={{width:1,height:22,background:"rgba(255,255,255,0.2)"}}/>
             </>}
             <div style={{padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",fontSize:11,fontWeight:700,color:role==="admin"?T.saffronL:"#a5d8ff",fontFamily:"sans-serif"}}>
@@ -318,6 +378,38 @@ function Main(){
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       )}
+
+      {/* ── Global Carry Forward Dialog ── */}
+      {showCF&&(()=>{
+        const nm=month===12?1:month+1;
+        const ny=month===12?year+1:year;
+        return(
+        <div style={{position:"fixed",inset:0,background:"rgba(10,40,10,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:T.white,borderRadius:14,padding:30,width:460,maxWidth:"95vw",boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+            <div style={{textAlign:"center",fontSize:40,marginBottom:8}}>🔄</div>
+            <div style={{fontWeight:800,fontSize:16,color:T.maroon,textAlign:"center",marginBottom:4}}>
+              Carry Forward to {MONTHS[nm]} {ny}
+            </div>
+            <div style={{fontSize:12,color:T.muted,textAlign:"center",marginBottom:16}}>
+              Currently viewing: {MONTHS[month]} {year}
+            </div>
+            <div style={{fontSize:13,color:"#333",background:"#f0fae8",border:"1px solid #b8e0a0",padding:16,borderRadius:10,lineHeight:2.2,marginBottom:20}}>
+              ✅ <b>All Employees</b> — carried to {MONTHS[nm]} {ny}<br/>
+              ✅ <b>Loans</b> — closing balance → opening balance · EMI retained<br/>
+              ✅ <b>Advances</b> — unrecovered balance → B/F entry<br/>
+              ✅ <b>PF &amp; ESI</b> — carried as-is<br/>
+              <span style={{color:T.danger,fontWeight:700}}>⚠ Export / download your data before proceeding</span>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <button onClick={()=>setShowCF(false)} style={btn("#e8d5b0",T.text)}>Cancel</button>
+              <button onClick={carryForward} style={{...btn("#1a5a00","white"),fontWeight:800,fontSize:14,padding:"10px 28px"}}>
+                ✅ Carry Forward → {MONTHS[nm]} {ny}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
       {authReady && !role && <LoginModal onLogin={handleLogin}/>}
     </div>
   );
@@ -502,8 +594,7 @@ function SalaryTab({settle,depts,activeDept,month,year}){
 // ── DEDUCTIONS ────────────────────────────────────────────────────
 function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}){
   const mkey=`${year}_${month}`;
-  const [showCF,setShowCF]=useState(false);
-  const [advEmpId,setAdvEmpId]=useState(null); // which employee's advance ledger is open
+  const [advEmpId,setAdvEmpId]=useState(null);
   const [advForm,setAdvForm]=useState({date:"",amount:""});
   const de=emps.filter(e=>e.deptId===activeDept);
   const dept=depts.find(x=>x.id===activeDept);
@@ -511,47 +602,6 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
     const ln=loan[e.id]||{};
     const total=r2(fv(ln.ob)+fv(ln.given));
     return r2(total-Math.min(fv(ln.emi),total));
-  };
-  const carryForward=()=>{
-    // Calculate next month/year
-    const nm=month===12?1:month+1;
-    const ny=month===12?year+1:year;
-    const nmkey=`${ny}_${nm}`;
-
-    // Loan: next month OB = current balance, EMI carries forward, given & ded reset
-    const nlNext={};
-    emps.forEach(e=>{
-      const bal=lnBal(e);
-      const ln=loan[e.id]||{};
-      const emi=r2(fv(ln.emi));
-      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
-    });
-
-    // Advance: carry forward unrecovered balance to next month
-    const advNext={};
-    emps.forEach(e=>{
-      const entries=Array.isArray(adv[e.id])?adv[e.id]:[];
-      const total=entries.reduce((s,x)=>s+fv(x.amount),0);
-      const recovered=entries.reduce((s,x)=>s+fv(x.recovered),0);
-      const bal=r2(total-recovered);
-      if(bal>0) advNext[e.id]=[{date:`${ny}-${String(nm).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
-    });
-
-    // PF/ESI carry forward to next month
-    const pfNext={};const esiNext={};
-    emps.forEach(e=>{
-      if(pf[e.id]) pfNext[e.id]=pf[e.id];
-      if(esi[e.id]) esiNext[e.id]=esi[e.id];
-    });
-
-    write({
-      [`loan_${nmkey}`]:nlNext,
-      [`adv_${nmkey}`]:advNext,
-      [`pf_${nmkey}`]:pfNext,
-      [`esi_${nmkey}`]:esiNext,
-    });
-    setShowCF(false);
-    showToast(`✅ Carried forward to ${MONTHS[nm]} ${ny}`);
   };
 
   // Advance helpers
@@ -579,28 +629,6 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
   );
   return(
     <div>
-      {showCF&&(()=>{const nm=month===12?1:month+1;const ny=month===12?year+1:year;return(
-      <div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <div style={{background:T.white,borderRadius:12,padding:28,width:440,maxWidth:"95vw",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
-          <div style={{textAlign:"center",fontSize:36,marginBottom:10}}>🔄</div>
-          <div style={{fontWeight:800,fontSize:15,color:T.maroon,textAlign:"center",marginBottom:12}}>
-            Carry Forward → {MONTHS[nm]} {ny}
-          </div>
-          <div style={{fontSize:13,color:T.muted,background:T.saffronPale,padding:14,borderRadius:8,lineHeight:2,marginBottom:20}}>
-            ✅ Loan Balance → Opening Balance for {MONTHS[nm]}<br/>
-            ✅ Monthly EMI → carried forward (auto-fills deduction)<br/>
-            ✅ Loan Given reset to zero<br/>
-            ✅ Advance balance carried forward as B/F<br/>
-            ✅ PF &amp; ESI carried forward<br/>
-            <span style={{color:T.danger,fontWeight:600}}>⚠ Export / download data first before proceeding</span>
-          </div>
-          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-            <button onClick={()=>setShowCF(false)} style={btn("#e8d5b0",T.text)}>Cancel</button>
-            <button onClick={carryForward} style={btn(T.maroon)}>✅ Carry Forward to {MONTHS[nm]}</button>
-          </div>
-        </div>
-      </div>
-      );})()}
 
       {/* Advance Ledger modal */}
       {advEmpId&&(()=>{
@@ -681,7 +709,7 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:13,color:T.muted}}>Deductions — <b style={{color:T.maroon}}>{dept?.name}</b> — {MONTHS[month]} {year}</div>
-        <button onClick={()=>setShowCF(true)} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>🔄 New Month Setup</button>
+        <div style={{fontSize:12,color:T.muted,fontStyle:"italic"}}>Use 🔄 Carry Fwd in the header to carry forward all data to next month</div>
       </div>
 
       {/* Advance Ledger Summary */}
