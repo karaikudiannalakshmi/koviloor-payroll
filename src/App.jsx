@@ -44,6 +44,7 @@ const dim=(y,m)=>new Date(y,m,0).getDate();
 const dow=(y,m,d)=>new Date(y,m-1,d).getDay();
 const DOW=["Su","Mo","Tu","We","Th","Fr","Sa"];
 const r2=n=>Math.round(n*100)/100;
+const r5=n=>Math.ceil(n/5)*5;  // round up to nearest ₹5
 const fi=n=>Math.abs(Math.round(n*100)/100).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:2});
 const fv=v=>parseFloat(v||0)||0;
 
@@ -283,7 +284,7 @@ function Main(){
     const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
     const rentAmt=r2(fv(emp.rent));
     const totalDed=r2(advAmt+lnDed+pfAmt+esiAmt+rentAmt);
-    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnEmi,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r2(gross-totalDed)};
+    return {emp,daysWorked:r2(dw2),otHours:r2(otH),baseSal,otPay,gross,advAmt,lnOB,lnGiven,lnEmi,lnDed,lnBal,pfAmt,esiAmt,rentAmt,totalDed,net:r5(gross-totalDed)};
   }),[monthEmps,d,adv,loan,pf,esi,nd,year,month]);
 
   const exportData=()=>{
