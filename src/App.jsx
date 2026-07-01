@@ -546,9 +546,155 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
 function SalaryTab({settle,depts,activeDept,month,year}){
   const dept=depts.find(d=>d.id===activeDept);
   const rows=settle.filter(s=>s.emp.deptId===activeDept);
+  const printSalary=()=>{
+    const w=window.open("","_blank","width=1100,height=800");
+    const tot=(fn)=>rows.reduce((s,r)=>s+fn(r),0);
+    w.document.write(`<!DOCTYPE html><html><head><title>Salary Statement</title><style>
+      body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:12px;color:#111;}
+      h2{margin:0;font-size:16px;} .sub{font-size:11px;color:#666;margin-top:3px;}
+      .hdr{background:#6b1a1a;color:white;padding:12px 18px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;}
+      table{width:100%;border-collapse:collapse;margin-top:0;}
+      th{background:#4a0e0e;color:white;padding:7px 8px;text-align:center;font-size:11px;white-space:nowrap;}
+      th.left{text-align:left;}
+      td{padding:6px 8px;text-align:right;border-bottom:1px solid #eee;font-size:11px;}
+      td.left{text-align:left;}
+      tr:nth-child(even){background:#fdf5e8;}
+      tfoot td{background:#6b1a1a;color:white;font-weight:800;padding:8px;}
+      .sign{margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
+      @media print{button{display:none!important;} body{padding:10px;}}
+    </style></head><body>
+    <div class="hdr">
+      <div><h2>Salary Statement — ${dept?.name}</h2><div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${rows.length} staff &nbsp;|&nbsp; Basis: 24 working days/month</div></div>
+      <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th class="left">#</th><th class="left">Employee</th><th>Rate</th><th>Days</th>
+        <th>Basic</th><th>OT</th><th>Gross</th>
+        <th>Advance</th><th>Loan</th><th>PF</th><th>ESI</th><th>Rent</th><th>Net Pay</th>
+      </tr></thead>
+      <tbody>${rows.map((s,i)=>`<tr>
+        <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
+        <td>₹${fi(s.emp.rate)}</td><td>${s.daysWorked}</td>
+        <td>₹${fi(s.baseSal)}</td><td>${s.otPay>0?`₹${fi(s.otPay)}`:"—"}</td>
+        <td><b>₹${fi(s.gross)}</b></td>
+        <td>${s.advAmt>0?`₹${fi(s.advAmt)}`:"—"}</td>
+        <td>${s.lnDed>0?`₹${fi(s.lnDed)}`:"—"}</td>
+        <td>${s.pfAmt>0?`₹${fi(s.pfAmt)}`:"—"}</td>
+        <td>${s.esiAmt>0?`₹${fi(s.esiAmt)}`:"—"}</td>
+        <td>${s.rentAmt>0?`₹${fi(s.rentAmt)}`:"—"}</td>
+        <td><b>₹${fi(s.net)}</b></td>
+      </tr>`).join("")}</tbody>
+      <tfoot><tr>
+        <td colspan="4" class="left">TOTAL — ${rows.length} staff</td>
+        <td>₹${fi(tot(r=>r.baseSal))}</td><td>₹${fi(tot(r=>r.otPay))}</td>
+        <td>₹${fi(tot(r=>r.gross))}</td>
+        <td>₹${fi(tot(r=>r.advAmt))}</td><td>₹${fi(tot(r=>r.lnDed))}</td>
+        <td>₹${fi(tot(r=>r.pfAmt))}</td><td>₹${fi(tot(r=>r.esiAmt))}</td>
+        <td>₹${fi(tot(r=>r.rentAmt))}</td>
+        <td>₹${fi(tot(r=>r.net))}</td>
+      </tr></tfoot>
+    </table>
+    <div class="sign">
+      <span>Prepared by: ___________________</span>
+      <span>Verified by: ___________________</span>
+      <span>Authorised by: ___________________</span>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
+  const printDed=()=>{
+    const w=window.open("","_blank","width=900,height=700");
+    const pfRows=rows.filter(s=>s.pfAmt>0||s.esiAmt>0);
+    const otherRows=rows.filter(s=>s.advAmt>0||s.lnDed>0||s.rentAmt>0);
+    w.document.write(`<!DOCTYPE html><html><head><title>Deductions Report</title><style>
+      body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:12px;color:#111;}
+      h2{margin:0;font-size:15px;} h3{font-size:13px;margin:18px 0 8px;color:#4a0e0e;}
+      .hdr{background:#1a3d6b;color:white;padding:12px 18px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;}
+      .sub{font-size:11px;color:#aac4ff;margin-top:3px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px;}
+      th{padding:7px 8px;text-align:center;font-size:11px;}
+      th.left{text-align:left;}
+      td{padding:6px 8px;text-align:right;border-bottom:1px solid #eee;font-size:11px;}
+      td.left{text-align:left;}
+      tr:nth-child(even){background:#f0f5ff;}
+      .pf-hdr th{background:#1a3d6b;color:white;}
+      .oth-hdr th{background:#6b4a00;color:white;}
+      tfoot td{font-weight:800;background:#eee;border-top:2px solid #999;}
+      .box{border:1px solid #ccc;border-radius:6px;overflow:hidden;margin-bottom:24px;}
+      .sign{margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
+      @media print{button{display:none!important;} body{padding:10px;}}
+    </style></head><body>
+    <div class="hdr">
+      <div><h2>Deductions Report — ${dept?.name}</h2><div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${rows.length} staff</div></div>
+      <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
+    </div>
+
+    <h3>🏛 PF & ESI Deductions</h3>
+    <div class="box"><table>
+      <thead class="pf-hdr"><tr>
+        <th class="left">#</th><th class="left">Employee</th>
+        <th>Gross Earned</th><th>PF Basis (70%)</th><th>PF (12%)</th><th>ESI (0.75%)</th><th>Total Stat. Ded.</th>
+      </tr></thead>
+      <tbody>${pfRows.map((s,i)=>{const basis=r2(s.baseSal*0.70);return`<tr>
+        <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
+        <td>₹${fi(s.baseSal)}</td><td>₹${fi(basis)}</td>
+        <td>₹${fi(s.pfAmt)}</td><td>₹${fi(s.esiAmt)}</td>
+        <td><b>₹${fi(s.pfAmt+s.esiAmt)}</b></td>
+      </tr>`}).join("")}
+      ${pfRows.length===0?`<tr><td colspan="7" style="text-align:center;color:#999;padding:14px;">No PF/ESI deductions this month</td></tr>`:""}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="2" class="left">TOTAL</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r.baseSal,0))}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r.baseSal*0.70),0))}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r.pfAmt,0))}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r.esiAmt,0))}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r.pfAmt+r.esiAmt,0))}</td>
+      </tr></tfoot>
+    </table></div>
+
+    <h3>💳 Other Deductions (Advance · Loan · Rent)</h3>
+    <div class="box"><table>
+      <thead class="oth-hdr"><tr>
+        <th class="left">#</th><th class="left">Employee</th>
+        <th>Advance</th><th>Loan EMI</th><th>Rent</th><th>Total Other Ded.</th>
+      </tr></thead>
+      <tbody>${rows.map((s,i)=>{if(s.advAmt===0&&s.lnDed===0&&s.rentAmt===0)return"";return`<tr>
+        <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
+        <td>${s.advAmt>0?`₹${fi(s.advAmt)}`:"—"}</td>
+        <td>${s.lnDed>0?`₹${fi(s.lnDed)}`:"—"}</td>
+        <td>${s.rentAmt>0?`₹${fi(s.rentAmt)}`:"—"}</td>
+        <td><b>₹${fi(s.advAmt+s.lnDed+s.rentAmt)}</b></td>
+      </tr>`;}).join("")}
+      ${otherRows.length===0?`<tr><td colspan="6" style="text-align:center;color:#999;padding:14px;">No other deductions this month</td></tr>`:""}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="2" class="left">TOTAL</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.advAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.lnDed,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.rentAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.advAmt+r.lnDed+r.rentAmt,0))}</td>
+      </tr></tfoot>
+    </table></div>
+
+    <div class="sign">
+      <span>Prepared by: ___________________</span>
+      <span>Verified by: ___________________</span>
+      <span>Authorised by: ___________________</span>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
   return(
     <div style={card}>
-      <div style={sec}><span>💰 Salary Statement — {dept?.name} — {MONTHS[month]} {year}</span></div>
+      <div style={sec}>
+        <span>💰 Salary Statement — {dept?.name} — {MONTHS[month]} {year}</span>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={printSalary} style={btn(T.maroon,"white",true)}>🖨️ Print Statement</button>
+          <button onClick={printDed} style={btn("#1a3d6b","white",true)}>🖨️ Print Deductions</button>
+        </div>
+      </div>
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",width:"100%"}}>
           <thead><tr>
@@ -929,7 +1075,7 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
       const dataRows=rows.map(s=>{
         const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
         const ifsc=txnType==="WIB"?"":s.emp.ifsc;
-        const bName=(s.emp.bankName||s.emp.name).substring(0,32).replace(/[^a-zA-Z0-9 ]/g,"");
+        const bName=s.emp.name.substring(0,32).replace(/[^a-zA-Z0-9 ]/g,"");
         return [txnType,Math.round(s.net),dbAcc,ifsc,s.emp.acc,bName,narr,narr];
       });
       const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
