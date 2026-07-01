@@ -604,79 +604,84 @@ function SalaryTab({settle,depts,activeDept,month,year}){
     w.document.close();
   };
   const printDed=()=>{
-    const w=window.open("","_blank","width=900,height=700");
-    const pfRows=rows.filter(s=>s.pfAmt>0||s.esiAmt>0);
-    const otherRows=rows.filter(s=>s.advAmt>0||s.lnDed>0||s.rentAmt>0);
+    const w=window.open("","_blank","width=1000,height=800");
     w.document.write(`<!DOCTYPE html><html><head><title>Deductions Report</title><style>
       body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:12px;color:#111;}
-      h2{margin:0;font-size:15px;} h3{font-size:13px;margin:18px 0 8px;color:#4a0e0e;}
+      h2{margin:0;font-size:15px;} h3{font-size:13px;margin:20px 0 6px;color:#4a0e0e;border-bottom:2px solid #4a0e0e;padding-bottom:4px;}
       .hdr{background:#1a3d6b;color:white;padding:12px 18px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;}
       .sub{font-size:11px;color:#aac4ff;margin-top:3px;}
-      table{width:100%;border-collapse:collapse;margin-bottom:20px;}
-      th{padding:7px 8px;text-align:center;font-size:11px;}
+      table{width:100%;border-collapse:collapse;margin-bottom:24px;}
+      th{padding:7px 8px;text-align:center;font-size:11px;white-space:nowrap;}
       th.left{text-align:left;}
       td{padding:6px 8px;text-align:right;border-bottom:1px solid #eee;font-size:11px;}
       td.left{text-align:left;}
-      tr:nth-child(even){background:#f0f5ff;}
+      td.nil{color:#bbb;}
+      tr:nth-child(even) td{background:#f8f8ff;}
       .pf-hdr th{background:#1a3d6b;color:white;}
-      .oth-hdr th{background:#6b4a00;color:white;}
-      tfoot td{font-weight:800;background:#eee;border-top:2px solid #999;}
-      .box{border:1px solid #ccc;border-radius:6px;overflow:hidden;margin-bottom:24px;}
-      .sign{margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
-      @media print{button{display:none!important;} body{padding:10px;}}
+      .oth-hdr th{background:#4a2800;color:white;}
+      tfoot td{font-weight:800;background:#dde;border-top:2px solid #999;padding:8px;}
+      tfoot.oth td{background:#f5e8d0;border-top:2px solid #a07040;}
+      .sign{margin-top:48px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
+      @media print{button{display:none!important;} body{padding:8px;} h3{margin-top:14px;}}
     </style></head><body>
     <div class="hdr">
       <div><h2>Deductions Report — ${dept?.name}</h2><div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${rows.length} staff</div></div>
       <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
     </div>
 
-    <h3>🏛 PF & ESI Deductions</h3>
-    <div class="box"><table>
+    <h3>🏛 Section 1 — PF &amp; ESI Deductions</h3>
+    <table>
       <thead class="pf-hdr"><tr>
         <th class="left">#</th><th class="left">Employee</th>
-        <th>Gross Earned</th><th>PF Basis (70%)</th><th>PF (12%)</th><th>ESI (0.75%)</th><th>Total Stat. Ded.</th>
+        <th>Gross Earned</th><th>PF Basis (70%)</th><th>PF @ 12%</th><th>ESI @ 0.75%</th><th>Total PF+ESI</th>
       </tr></thead>
-      <tbody>${pfRows.map((s,i)=>{const basis=r2(s.baseSal*0.70);return`<tr>
-        <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
-        <td>₹${fi(s.baseSal)}</td><td>₹${fi(basis)}</td>
-        <td>₹${fi(s.pfAmt)}</td><td>₹${fi(s.esiAmt)}</td>
-        <td><b>₹${fi(s.pfAmt+s.esiAmt)}</b></td>
-      </tr>`}).join("")}
-      ${pfRows.length===0?`<tr><td colspan="7" style="text-align:center;color:#999;padding:14px;">No PF/ESI deductions this month</td></tr>`:""}
+      <tbody>${rows.map((s,i)=>{
+        const basis=r2(s.baseSal*0.70);
+        return`<tr>
+          <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b>${s.emp.pfEsi?'':' <span style="font-size:9px;color:#999;">(not eligible)</span>'}</td>
+          <td>₹${fi(s.baseSal)}</td>
+          <td>${s.pfAmt>0?`₹${fi(basis)}`:'<span class="nil">—</span>'}</td>
+          <td>${s.pfAmt>0?`₹${fi(s.pfAmt)}`:'<span class="nil">—</span>'}</td>
+          <td>${s.esiAmt>0?`₹${fi(s.esiAmt)}`:'<span class="nil">—</span>'}</td>
+          <td>${(s.pfAmt+s.esiAmt)>0?`<b>₹${fi(s.pfAmt+s.esiAmt)}</b>`:'<span class="nil">—</span>'}</td>
+        </tr>`;}).join("")}
       </tbody>
       <tfoot><tr>
-        <td colspan="2" class="left">TOTAL</td>
-        <td>₹${fi(pfRows.reduce((s,r)=>s+r.baseSal,0))}</td>
-        <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r.baseSal*0.70),0))}</td>
-        <td>₹${fi(pfRows.reduce((s,r)=>s+r.pfAmt,0))}</td>
-        <td>₹${fi(pfRows.reduce((s,r)=>s+r.esiAmt,0))}</td>
-        <td>₹${fi(pfRows.reduce((s,r)=>s+r.pfAmt+r.esiAmt,0))}</td>
+        <td colspan="2" class="left">TOTAL (${rows.filter(s=>s.pfAmt>0||s.esiAmt>0).length} eligible staff)</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.baseSal,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r2(r.baseSal*0.70),0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.pfAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.esiAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.pfAmt+r.esiAmt,0))}</td>
       </tr></tfoot>
-    </table></div>
+    </table>
 
-    <h3>💳 Other Deductions (Advance · Loan · Rent)</h3>
-    <div class="box"><table>
+    <h3>💳 Section 2 — Loan, Advance &amp; Rent Deductions</h3>
+    <table>
       <thead class="oth-hdr"><tr>
         <th class="left">#</th><th class="left">Employee</th>
-        <th>Advance</th><th>Loan EMI</th><th>Rent</th><th>Total Other Ded.</th>
+        <th>Loan OB</th><th>Loan EMI</th><th>Loan Balance</th><th>Advance</th><th>Rent</th><th>Total Ded.</th>
       </tr></thead>
-      <tbody>${rows.map((s,i)=>{if(s.advAmt===0&&s.lnDed===0&&s.rentAmt===0)return"";return`<tr>
+      <tbody>${rows.map((s,i)=>`<tr>
         <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
-        <td>${s.advAmt>0?`₹${fi(s.advAmt)}`:"—"}</td>
-        <td>${s.lnDed>0?`₹${fi(s.lnDed)}`:"—"}</td>
-        <td>${s.rentAmt>0?`₹${fi(s.rentAmt)}`:"—"}</td>
-        <td><b>₹${fi(s.advAmt+s.lnDed+s.rentAmt)}</b></td>
-      </tr>`;}).join("")}
-      ${otherRows.length===0?`<tr><td colspan="6" style="text-align:center;color:#999;padding:14px;">No other deductions this month</td></tr>`:""}
+        <td>${s.lnOB>0?`₹${fi(s.lnOB)}`:'<span class="nil">—</span>'}</td>
+        <td>${s.lnDed>0?`₹${fi(s.lnDed)}`:'<span class="nil">—</span>'}</td>
+        <td>${s.lnBal>0?`₹${fi(s.lnBal)}`:'<span class="nil">—</span>'}</td>
+        <td>${s.advAmt>0?`₹${fi(s.advAmt)}`:'<span class="nil">—</span>'}</td>
+        <td>${s.rentAmt>0?`₹${fi(s.rentAmt)}`:'<span class="nil">—</span>'}</td>
+        <td>${(s.lnDed+s.advAmt+s.rentAmt)>0?`<b>₹${fi(s.lnDed+s.advAmt+s.rentAmt)}</b>`:'<span class="nil">—</span>'}</td>
+      </tr>`).join("")}
       </tbody>
-      <tfoot><tr>
+      <tfoot class="oth"><tr>
         <td colspan="2" class="left">TOTAL</td>
-        <td>₹${fi(rows.reduce((s,r)=>s+r.advAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.lnOB,0))}</td>
         <td>₹${fi(rows.reduce((s,r)=>s+r.lnDed,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.lnBal,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.advAmt,0))}</td>
         <td>₹${fi(rows.reduce((s,r)=>s+r.rentAmt,0))}</td>
-        <td>₹${fi(rows.reduce((s,r)=>s+r.advAmt+r.lnDed+r.rentAmt,0))}</td>
+        <td>₹${fi(rows.reduce((s,r)=>s+r.lnDed+r.advAmt+r.rentAmt,0))}</td>
       </tr></tfoot>
-    </table></div>
+    </table>
 
     <div class="sign">
       <span>Prepared by: ___________________</span>
