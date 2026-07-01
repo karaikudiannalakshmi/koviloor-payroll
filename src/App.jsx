@@ -1082,7 +1082,7 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
       ws["!cols"]=[{wch:18},{wch:20},{wch:20},{wch:30},{wch:34},{wch:32},{wch:22},{wch:30}];
       const wb2=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
-      XLSX.writeFile(wb2,`PAB_Salary_${MONTHS[month]}_${year}.xls`,{bookType:"xls"});
+      XLSX.writeFile(wb2,`PAB_${dept?.name.replace(/[^a-zA-Z0-9]/g,"_")}_${MONTHS[month]}_${year}.xls`,{bookType:"xls"});
     };
     document.head.appendChild(script);
   };
