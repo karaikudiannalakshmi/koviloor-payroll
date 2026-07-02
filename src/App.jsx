@@ -189,7 +189,10 @@ function Main(){
     }
   },[mkey]); // intentionally only on mkey change
 
-  // Historical employees for this month (survives later deletions/resignations)
+  // monthEmps: use frozen snapshot for this month if it exists.
+  // If no snapshot yet (first time opening this month), fall back to live emps.
+  // Past snapshots are protected because saveEmp only writes current mkey snapshot,
+  // and carry forward never overwrites an existing snapshot.
   const monthEmps = d[`emps_${mkey}`] || emps;
 
   const [showCF,setShowCF]=useState(false);
@@ -206,24 +209,27 @@ function Main(){
     const empsNext=emps; // carry live master
     
     // 3. Loans — OB = closing balance, EMI carries, given reset
-    const lnBal=e=>{
+    const lnBalCF=e=>{
       const ln=(d[`loan_${mkey}`]||{})[e.id]||{};
       const total=r2(fv(ln.ob)+fv(ln.given));
       return r2(total-Math.min(fv(ln.emi),total));
     };
     const loanCurr=d[`loan_${mkey}`]||{};
     const nlNext={};
-    emps.forEach(e=>{
-      const bal=lnBal(e);
+    monthEmps.forEach(e=>{
       const ln=loanCurr[e.id]||{};
+      const bal=lnBalCF(e);
       const emi=r2(fv(ln.emi));
-      nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
+      // Only carry forward if there is an actual outstanding balance or a standing EMI
+      if(bal>0||emi>0){
+        nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
+      }
     });
 
     // 4. Advances — carry unrecovered balance as B/F
     const advCurr=d[`adv_${mkey}`]||{};
     const advNext={};
-    emps.forEach(e=>{
+    monthEmps.forEach(e=>{
       const entries=Array.isArray(advCurr[e.id])?advCurr[e.id]:[];
       const total=entries.reduce((s,x)=>s+fv(x.amount),0);
       const recovered=entries.reduce((s,x)=>s+fv(x.recovered),0);
@@ -235,13 +241,16 @@ function Main(){
     const pfCurr=d[`pf_${mkey}`]||{};
     const esiCurr=d[`esi_${mkey}`]||{};
     const pfNext={};const esiNext={};
-    emps.forEach(e=>{
+    monthEmps.forEach(e=>{
       if(pfCurr[e.id]) pfNext[e.id]=pfCurr[e.id];
       if(esiCurr[e.id]) esiNext[e.id]=esiCurr[e.id];
     });
 
+    // Only write emps snapshot for next month if it doesn't already exist
+    const empsNext=d[`emps_${nmkey}`]?undefined:monthEmps;
+
     write({
-      [`emps_${nmkey}`]:empsNext,
+      ...(empsNext?{[`emps_${nmkey}`]:empsNext}:{}),
       [`loan_${nmkey}`]:nlNext,
       [`adv_${nmkey}`]:advNext,
       [`pf_${nmkey}`]:pfNext,
@@ -369,7 +378,7 @@ function Main(){
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
-        {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,write}}/>}
+        {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,write,d}}/>}
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
         {safeTab==="depts"  &&role==="admin"&&<DeptsTab {...{depts,emps,ndid,write,d,setDeptId}}/>}
       </div>
@@ -494,8 +503,7 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
       </div>
       <div style={{padding:"8px 14px",background:T.saffronPale,borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontFamily:"sans-serif"}}>
         {mode==="att"?"💡 Click = ✓ Present · again = ½ Half Day · again = ✗ Absent · again = Clear.":"💡 Enter OT hours. Paid at Daily Rate ÷ 8 per hour."}
-      </div>
-      {de.length===0?<div style={{padding:32,textAlign:"center",color:T.muted}}>No employees in this department.</div>:(
+      </div>      {de.length===0?<div style={{padding:32,textAlign:"center",color:T.muted}}>No employees in this department.</div>:(
         <div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",minWidth:"100%"}}>
             <thead><tr>
@@ -860,7 +868,7 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
       })()}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,color:T.muted}}>Deductions — <b style={{color:T.maroon}}>{dept?.name}</b> — {MONTHS[month]} {year}</div>
+      <div style={{fontSize:13,color:T.muted}}>Deductions — <b style={{color:T.maroon}}>{dept?.name}</b> — {MONTHS[month]} {year}</div>
         <div style={{fontSize:12,color:T.muted,fontStyle:"italic"}}>Use 🔄 Carry Fwd in the header to carry forward all data to next month</div>
       </div>
 
@@ -1057,16 +1065,24 @@ function PayslipTab({settle,depts,activeDept,month,year}){
 }
 
 // ── BANK UPLOAD ───────────────────────────────────────────────────
-function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
-  const dept=depts.find(d=>d.id===activeDept);
-  const rows=settle.filter(s=>s.emp.deptId===activeDept&&s.net>0&&s.emp.acc);
-  const total=rows.reduce((s,r)=>s+r.net,0);
-  const narr=`Salary ${MONTHS[month].substr(0,3)}${String(year).substr(2)}`;
-  const downloadXLS=()=>{
+function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
+  const dept=depts.find(dd=>dd.id===activeDept);
+  const deptDbAcc=d[`dbAcc_${activeDept}`]||dbAcc||"";
+  const commonDbAcc=d[`dbAcc_common`]||dbAcc||"";
+
+  // Departments that share the common account (not marked as separate)
+  const commonDepts=depts.filter(dd=>!dd.separateBank);
+  const commonRows=settle.filter(s=>commonDepts.some(dd=>dd.id===s.emp.deptId)&&s.net>0&&s.emp.acc);
+  const deptRows=settle.filter(s=>s.emp.deptId===activeDept&&s.net>0&&s.emp.acc);
+  const deptTotal=deptRows.reduce((s,r)=>s+r.net,0);
+  const commonTotal=commonRows.reduce((s,r)=>s+r.net,0);
+
+  const buildXLS=(rows,debitAcc,filename)=>{
     const script=document.createElement("script");
     script.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     script.onload=()=>{
       const XLSX=window.XLSX;
+      const narr=`Salary ${MONTHS[month].substr(0,3)}${String(year).substr(2)}`;
       const header=[
         "Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))",
         "Amount (₹)\n(Should not be more than 15 digit including decimals and paise)",
@@ -1081,54 +1097,93 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write}){
         const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
         const ifsc=txnType==="WIB"?"":s.emp.ifsc;
         const bName=s.emp.name.substring(0,32).replace(/[^a-zA-Z0-9 ]/g,"");
-        return [txnType,Math.round(s.net),dbAcc,ifsc,s.emp.acc,bName,narr,narr];
+        return [txnType,Math.round(s.net),debitAcc,ifsc,s.emp.acc,bName,narr,narr];
       });
       const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
       ws["!cols"]=[{wch:18},{wch:20},{wch:20},{wch:30},{wch:34},{wch:32},{wch:22},{wch:30}];
       const wb2=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
-      XLSX.writeFile(wb2,`PAB_${dept?.name.replace(/[^a-zA-Z0-9]/g,"_")}_${MONTHS[month]}_${year}.xls`,{bookType:"xls"});
+      XLSX.writeFile(wb2,filename,{bookType:"xls"});
     };
     document.head.appendChild(script);
   };
+
   return(
-    <div>
-      <div style={{...card,marginBottom:12}}>
-        <div style={sec}><span>🏦 Bank Upload — {dept?.name} — {MONTHS[month]} {year}</span></div>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* ── Combined Upload (all non-separate depts) ── */}
+      <div style={card}>
+        <div style={{...sec,background:"#1a3d6b"}}>
+          <span>🏦 Combined Bank Upload — {MONTHS[month]} {year}</span>
+          <span style={{fontSize:11,opacity:0.7}}>All departments sharing common account</span>
+        </div>
         <div style={{padding:14,display:"flex",gap:14,alignItems:"flex-end",flexWrap:"wrap"}}>
-          <div><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>DEBIT ACCOUNT</label><input value={dbAcc} onChange={e=>write({dbAcc:e.target.value})} style={{...inp(200),fontFamily:"monospace"}} placeholder="Institution account number"/></div>
-          <button onClick={downloadXLS} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>⬇️ Download PAB XLS</button>
-          <div style={{marginLeft:"auto",background:T.saffronPale,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
-            <div style={{fontSize:10,color:T.muted,fontWeight:700}}>TOTAL TO TRANSFER</div>
-            <div style={{fontSize:22,fontWeight:900,color:T.maroon}}>₹{fi(total)}</div>
-            <div style={{fontSize:11,color:T.muted}}>{rows.length} employees · {MONTHS[month]} {year}</div>
+          <div>
+            <label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>COMMON DEBIT ACCOUNT</label>
+            <input value={commonDbAcc} onChange={e=>write({dbAcc_common:e.target.value})} style={{...inp(220),fontFamily:"monospace"}} placeholder="Shared institution account number"/>
+          </div>
+          <button onClick={()=>buildXLS(commonRows,commonDbAcc,`PAB_Combined_${MONTHS[month]}_${year}.xls`)} style={{...btn("#1a3d6b","white"),fontSize:13,fontWeight:800}}>⬇️ Download Combined XLS</button>
+          <div style={{marginLeft:"auto",background:"#e8f0ff",border:"1px solid #b0c4f0",borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:T.muted,fontWeight:700}}>COMBINED TOTAL</div>
+            <div style={{fontSize:22,fontWeight:900,color:"#1a3d6b"}}>₹{fi(commonTotal)}</div>
+            <div style={{fontSize:11,color:T.muted}}>{commonRows.length} employees · {commonDepts.length} depts</div>
           </div>
         </div>
-        <div style={{padding:"0 14px 12px",fontSize:11,color:T.muted}}>
-          ℹ️ ICICI bank accounts → WIB (IFSC blank) · Other banks → NFT (NEFT) · Salary basis: 24 working days/month
+        <div style={{padding:"0 14px 10px"}}>
+          <div style={{fontSize:11,color:T.muted,marginBottom:6}}>Included departments:</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {commonDepts.map(dd=>{
+              const cnt=settle.filter(s=>s.emp.deptId===dd.id&&s.net>0&&s.emp.acc).length;
+              const tot=settle.filter(s=>s.emp.deptId===dd.id).reduce((s,r)=>s+r.net,0);
+              return <div key={dd.id} style={{background:T.saffronPale,border:`2px solid ${dd.color}`,borderRadius:6,padding:"4px 10px",fontSize:11}}>
+                <b style={{color:dd.color}}>{dd.name}</b> · {cnt} staff · ₹{fi(tot)}
+              </div>;
+            })}
+          </div>
         </div>
       </div>
+
+      {/* ── Per-Department Upload (for separate account depts) ── */}
       <div style={card}>
-        <div style={sec}>Payment Details</div>
-        <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%"}}>
-          <thead><tr>
-            <th style={{...thS,textAlign:"left"}}>Employee</th>
-            <th style={{...thS,textAlign:"left"}}>Txn Type</th>
-            <th style={{...thS,textAlign:"left"}}>Account No.</th>
-            <th style={{...thS,textAlign:"left"}}>IFSC</th>
-            <th style={thS}>Net Pay</th>
-          </tr></thead>
-          <tbody>{settle.filter(s=>s.emp.deptId===activeDept).map((s,i)=>{
-            const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
-            return(<tr key={s.emp.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
-              <td style={tdL}><b>{s.emp.name}</b></td>
-              <td style={{...tdS,fontWeight:700,color:txnType==="WIB"?T.blue:T.green}}>{txnType}</td>
-              <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.acc||<span style={{color:T.muted,fontStyle:"italic"}}>Not set</span>}</td>
-              <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.ifsc||"—"}</td>
-              <td style={{...tdS,fontWeight:700,color:s.net>0?T.maroon:T.muted}}>₹{fi(s.net)}</td>
-            </tr>);
-          })}</tbody>
-        </table></div>
+        <div style={sec}>
+          <span>🏦 {dept?.name} — {MONTHS[month]} {year}</span>
+          {dept?.separateBank&&<span style={{background:"#dbeafe",color:"#1a3d6b",padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:700}}>Separate Account</span>}
+        </div>
+        <div style={{padding:14,display:"flex",gap:14,alignItems:"flex-end",flexWrap:"wrap"}}>
+          <div>
+            <label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>DEBIT ACCOUNT — {dept?.name}</label>
+            <input value={deptDbAcc} onChange={e=>write({[`dbAcc_${activeDept}`]:e.target.value})} style={{...inp(220),fontFamily:"monospace"}} placeholder="Department account number"/>
+          </div>
+          <button onClick={()=>buildXLS(deptRows,deptDbAcc,`PAB_${dept?.name.replace(/[^a-zA-Z0-9]/g,"_")}_${MONTHS[month]}_${year}.xls`)} style={{...btn(T.saffron,T.maroonD),fontSize:13}}>⬇️ Download {dept?.name} XLS</button>
+          <div style={{marginLeft:"auto",background:T.saffronPale,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:T.muted,fontWeight:700}}>DEPT TOTAL</div>
+            <div style={{fontSize:22,fontWeight:900,color:T.maroon}}>₹{fi(deptTotal)}</div>
+            <div style={{fontSize:11,color:T.muted}}>{deptRows.length} employees</div>
+          </div>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr>
+              <th style={{...thS,textAlign:"left"}}>Employee</th>
+              <th style={{...thS,textAlign:"left"}}>Dept</th>
+              <th style={{...thS,textAlign:"left"}}>Txn</th>
+              <th style={{...thS,textAlign:"left"}}>Account No.</th>
+              <th style={{...thS,textAlign:"left"}}>IFSC</th>
+              <th style={thS}>Net Pay</th>
+            </tr></thead>
+            <tbody>{settle.filter(s=>s.emp.deptId===activeDept).map((s,i)=>{
+              const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
+              return(<tr key={s.emp.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
+                <td style={tdL}><b>{s.emp.name}</b></td>
+                <td style={{...tdL,fontSize:11,color:T.muted}}>{depts.find(dd=>dd.id===s.emp.deptId)?.name}</td>
+                <td style={{...tdS,fontWeight:700,color:txnType==="WIB"?T.blue:T.green}}>{txnType}</td>
+                <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.acc||<span style={{color:T.muted,fontStyle:"italic"}}>Not set</span>}</td>
+                <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{s.emp.ifsc||"—"}</td>
+                <td style={{...tdS,fontWeight:700,color:s.net>0?T.maroon:T.muted}}>₹{fi(s.net)}</td>
+              </tr>);
+            })}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1146,7 +1201,9 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
     let newEmps,newNid=nid;
     if(ed.id===0){newEmps=[...emps,{...ed,id:nid,deptId:activeDept}];newNid=nid+1;}
     else newEmps=emps.map(e=>e.id===ed.id?{...ed}:e);
-    // Also update current-month snapshot so rent/rate changes take effect immediately
+    // Only update current month snapshot — past months are frozen
+    const today=new Date();
+    // Always update live master AND the currently viewed month's snapshot
     write({emps:newEmps,nid:newNid,[`emps_${mkey}`]:newEmps});setEd(null);
   };
   return(
@@ -1237,6 +1294,10 @@ function DeptsTab({depts,emps,ndid,write,d,setDeptId}){
           <div><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:6}}>COLOUR</label>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{COLS.map(c=><div key={c} onClick={()=>setEd(p=>({...p,color:c}))} style={{width:28,height:28,borderRadius:6,background:c,cursor:"pointer",border:`3px solid ${ed.color===c?"white":"transparent"}`}}/>)}</div>
           </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+            <input type="checkbox" id="sepBankChk" checked={!!ed.separateBank} onChange={e=>setEd(p=>({...p,separateBank:e.target.checked}))} style={{width:16,height:16,cursor:"pointer"}}/>
+            <label htmlFor="sepBankChk" style={{fontSize:12,fontWeight:700,color:"#1a3d6b",cursor:"pointer"}}>Separate Bank Account<br/><span style={{fontWeight:400,color:T.muted,fontSize:11}}>Excluded from combined upload</span></label>
+          </div>
         </div>
         <div style={{display:"flex",gap:8,marginTop:12}}>
           <button onClick={saveDept} style={btn(T.maroon)}>💾 Save</button>
@@ -1247,7 +1308,10 @@ function DeptsTab({depts,emps,ndid,write,d,setDeptId}){
         {depts.map(dept=>{
           const cnt=emps.filter(e=>e.deptId===dept.id).length;
           return <div key={dept.id} style={{background:T.saffronPale,border:`2px solid ${T.border}`,borderLeft:`5px solid ${dept.color}`,borderRadius:8,padding:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><div style={{fontWeight:700,fontSize:15,color:T.maroon}}>{dept.name}</div><div style={{fontSize:11,color:T.muted,marginTop:3}}>{cnt} employee{cnt!==1?"s":""}</div></div>
+            <div><div style={{fontWeight:700,fontSize:15,color:T.maroon}}>{dept.name}</div>
+              <div style={{fontSize:11,color:T.muted,marginTop:3}}>{cnt} employee{cnt!==1?"s":""}</div>
+              {dept.separateBank&&<div style={{fontSize:10,color:"#1a3d6b",fontWeight:700,marginTop:3}}>🏦 Separate Bank Account</div>}
+            </div>
             <div style={{display:"flex",gap:6}}>
               <button onClick={()=>setEd({...dept})} style={btn(T.maroonL,"white",true)}>✏️</button>
               <button onClick={()=>{if(emps.some(e=>e.deptId===dept.id)){alert("Remove employees first.");return;}if(window.confirm("Delete?"))write({depts:depts.filter(x=>x.id!==dept.id)});}} style={btn(T.danger,"white",true)}>🗑️</button>
