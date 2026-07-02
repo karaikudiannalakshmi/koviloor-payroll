@@ -247,15 +247,15 @@ function Main(){
     });
 
     // Only write emps snapshot for next month if it doesn't already exist
-    const empsNext=d[`emps_${nmkey}`]?undefined:monthEmps;
-
-    write({
-      ...(empsNext?{[`emps_${nmkey}`]:empsNext}:{}),
+    const cfPayload={
       [`loan_${nmkey}`]:nlNext,
       [`adv_${nmkey}`]:advNext,
       [`pf_${nmkey}`]:pfNext,
       [`esi_${nmkey}`]:esiNext,
-    });
+    };
+    if(!d[`emps_${nmkey}`]) cfPayload[`emps_${nmkey}`]=monthEmps;
+
+    write(cfPayload);
     setShowCF(false);
     showToast(`✅ All data carried forward to ${MONTHS[nm]} ${ny}`);
   };
