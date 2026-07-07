@@ -377,7 +377,7 @@ function Main(){
         {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write,isOperator:role==="operator"}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,month,year,showToast,write,d}}/>}
-        {safeTab==="pfesi"  &&role==="admin"&&<PFESITab {...{settle,depts,month,year,pf,esi,write,d,mkey}}/>}
+        {safeTab==="pfesi"  &&role==="admin"&&<PFESITab {...{settle,depts,month,year,pf,esi,write,d,mkey,emps:monthEmps,showToast}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,write,d}}/>}
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
@@ -957,11 +957,12 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
 }
 
 // ── PF & ESI TAB ──────────────────────────────────────────────────
-function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
+function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const pfRows=settle.filter(s=>s.emp.pfEsi&&s.gross>0);
   const allRows=settle.filter(s=>s.emp.pfEsi);
-  const [extFile,setExtFile]=useState(null);   // {name, rows:[{rowIdx,uan,name,cols}]}
-  const [mergeResult,setMergeResult]=useState(null); // {matched, unmatched, notInExt}
+  const [extFile,setExtFile]=useState(null);
+  const [mergeResult,setMergeResult]=useState(null);
+  const [uanEdits,setUanEdits]=useState({});  // empId → uan string
   const extRef=useRef();
 
   const totGross=pfRows.reduce((s,r)=>s+r.baseSal,0);
@@ -1035,7 +1036,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
           Math.round(our.baseSal), basis, basis, basis,
           epf, eps, diff, ncp, 0
         ];
-        matched.push({extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf});
+        matched.push({extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf,empId:our.emp.id,extUan:br.uan,existingUan:our.emp.uan||""});
       } else {
         unmatched.push(br.name);
       }
@@ -1049,6 +1050,10 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
     });
 
     setMergeResult({matched,unmatched,notInExt,mergedData});
+    // Pre-fill uanEdits with UAN from external file for matched employees
+    const initUans={};
+    matched.forEach(m=>{if(!m.existingUan&&m.extUan)initUans[m.empId]=m.extUan;});
+    setUanEdits(initUans);
   };
 
   const downloadMerged=()=>{
@@ -1059,6 +1064,12 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
     XLSX.utils.book_append_sheet(wb2,ws,"KOVILOOR MADALAYAM");
     const fname=extFile.name.replace(/\.xlsx?$/i,`_Consolidated_${MONTHS[month]}_${year}.xlsx`);
     XLSX.writeFile(wb2,fname);
+  };
+
+  const saveUANs=(emps)=>{
+    const updated=emps.map(e=>uanEdits[e.id]?{...e,uan:uanEdits[e.id]}:e);
+    write({emps:updated,[`emps_${mkey}`]:updated});
+    showToast(`✅ UAN saved for ${Object.keys(uanEdits).length} employees`);
   };
 
   const printPF=()=>{
@@ -1327,16 +1338,22 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
                 </button>
               </div>
 
-              {/* Matched list */}
+              {/* Matched list with UAN editing */}
               {mergeResult.matched.length>0&&(
                 <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#14532d",marginBottom:4}}>✅ Matched & filled:</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#14532d"}}>✅ Matched & filled ({mergeResult.matched.length} employees):</div>
+                    <button onClick={()=>saveUANs(emps)} style={{...btn("#1a3d6b","white",true),fontSize:12}}>
+                      💾 Save UANs to Employee Master
+                    </button>
+                  </div>
                   <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
                     <thead><tr>
                       <th style={{...thS,textAlign:"left",background:"#14532d"}}>Name in their file</th>
-                      <th style={{...thS,textAlign:"left",background:"#14532d"}}>Matched to our</th>
+                      <th style={{...thS,textAlign:"left",background:"#14532d"}}>Our Employee</th>
                       <th style={{...thS,background:"#14532d"}}>Gross</th>
                       <th style={{...thS,background:"#14532d"}}>PF</th>
+                      <th style={{...thS,background:"#1a3d6b",minWidth:150}}>UAN (from their file → save to our master)</th>
                     </tr></thead>
                     <tbody>{mergeResult.matched.map((m,i)=>(
                       <tr key={i} style={{background:i%2===0?"#f0faf4":"white"}}>
@@ -1344,9 +1361,25 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
                         <td style={tdL}>{m.ourName}</td>
                         <td style={tdS}>₹{fi(m.gross)}</td>
                         <td style={tdS}>₹{fi(m.pf)}</td>
+                        <td style={{...tdS,padding:"4px 6px"}}>
+                          {m.existingUan
+                            ? <span style={{fontFamily:"monospace",color:"#14532d",fontWeight:700}}>{m.existingUan} ✓</span>
+                            : <input
+                                type="text"
+                                value={uanEdits[m.empId]||m.extUan||""}
+                                onChange={e=>setUanEdits(p=>({...p,[m.empId]:e.target.value}))}
+                                placeholder="Enter UAN"
+                                style={{...inp(140),fontFamily:"monospace",fontSize:11,padding:"3px 6px",
+                                  background:uanEdits[m.empId]?"#e8f5e9":"#fff8dc"}}
+                              />
+                          }
+                        </td>
                       </tr>
                     ))}</tbody>
                   </table>
+                  <div style={{fontSize:11,color:T.muted,marginTop:6}}>
+                    💡 Green = already saved · Yellow = pre-filled from their file, confirm and click Save UANs
+                  </div>
                 </div>
               )}
 
