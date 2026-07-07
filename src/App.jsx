@@ -958,14 +958,108 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
 
 // ── PF & ESI TAB ──────────────────────────────────────────────────
 function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
-  // All PF+ESI eligible employees across ALL departments
   const pfRows=settle.filter(s=>s.emp.pfEsi&&s.gross>0);
-  const allRows=settle.filter(s=>s.emp.pfEsi); // include zero gross too (to show on register)
+  const allRows=settle.filter(s=>s.emp.pfEsi);
+  const [extFile,setExtFile]=useState(null);   // {name, rows:[{rowIdx,uan,name,cols}]}
+  const [mergeResult,setMergeResult]=useState(null); // {matched, unmatched, notInExt}
+  const extRef=useRef();
 
   const totGross=pfRows.reduce((s,r)=>s+r.baseSal,0);
   const totBasis=pfRows.reduce((s,r)=>s+r2(r.baseSal*0.70),0);
   const totPF=pfRows.reduce((s,r)=>s+r.pfAmt,0);
   const totESI=pfRows.reduce((s,r)=>s+r.esiAmt,0);
+
+  // Normalise name for fuzzy matching
+  const norm=s=>s?s.toLowerCase().replace(/[^a-z]/g,""):"";
+
+  const loadExtFile=(file)=>{
+    const loadXLSX=()=>{
+      const XLSX=window.XLSX;
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const wb=XLSX.read(e.target.result,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+        // Find blank rows — rows where col C (index 2) is null/0 but col A (UAN) exists
+        const blankRows=[];
+        data.forEach((row,idx)=>{
+          const uan=row[0];
+          const name=row[1];
+          const gross=row[2];
+          if(uan&&name&&(gross===null||gross===0||gross==="")){
+            blankRows.push({rowIdx:idx,uan:String(uan),name:String(name).trim(),row:[...row]});
+          }
+        });
+        setExtFile({name:file.name,data,blankRows});
+        setMergeResult(null);
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    if(window.XLSX){loadXLSX();}
+    else{
+      const s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload=loadXLSX;
+      document.head.appendChild(s);
+    }
+  };
+
+  const doMerge=()=>{
+    if(!extFile)return;
+    const matched=[],unmatched=[],notInExt=[];
+
+    // Build our payroll lookup by normalised name
+    const ourMap={};
+    allRows.forEach(s=>{ourMap[norm(s.emp.name)]=s;});
+
+    const mergedData=extFile.data.map(r=>[...r]);
+
+    extFile.blankRows.forEach(br=>{
+      const bn=norm(br.name);
+      // Try exact then partial match
+      let our=ourMap[bn];
+      if(!our){
+        const keys=Object.keys(ourMap);
+        const key=keys.find(k=>k.includes(bn)||bn.includes(k)||
+          bn.split("").filter(c=>k.includes(c)).length>Math.max(bn.length,k.length)*0.7);
+        if(key)our=ourMap[key];
+      }
+      if(our){
+        const basis=Math.min(Math.round(r2(our.baseSal*0.70)),15000);
+        const epf=Math.round(basis*0.12);
+        const eps=Math.round(basis*0.0833);
+        const diff=epf-eps;
+        const ncp=our.daysWorked===0?26:0;
+        mergedData[br.rowIdx]=[
+          br.uan, br.name,
+          Math.round(our.baseSal), basis, basis, basis,
+          epf, eps, diff, ncp, 0
+        ];
+        matched.push({extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf});
+      } else {
+        unmatched.push(br.name);
+      }
+    });
+
+    // Our employees not found in ext file
+    allRows.forEach(s=>{
+      const sn=norm(s.emp.name);
+      const found=extFile.blankRows.some(br=>norm(br.name)===sn||norm(br.name).includes(sn)||sn.includes(norm(br.name)));
+      if(!found) notInExt.push(s.emp.name);
+    });
+
+    setMergeResult({matched,unmatched,notInExt,mergedData});
+  };
+
+  const downloadMerged=()=>{
+    if(!mergeResult)return;
+    const XLSX=window.XLSX;
+    const ws=XLSX.utils.aoa_to_sheet(mergeResult.mergedData);
+    const wb2=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2,ws,"KOVILOOR MADALAYAM");
+    const fname=extFile.name.replace(/\.xlsx?$/i,`_Consolidated_${MONTHS[month]}_${year}.xlsx`);
+    XLSX.writeFile(wb2,fname);
+  };
 
   const printPF=()=>{
     const w=window.open("","_blank","width=1100,height=800");
@@ -1170,6 +1264,122 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
       {/* Note about UAN */}
       <div style={{...card,padding:14,fontSize:12,color:T.muted,background:"#fffbea",border:`1px solid #f0c040`}}>
         💡 <b>Note:</b> The PF Upload XLS uses the employee's <b>UAN</b> field. Make sure UAN numbers are filled in the Employees tab for PF portal upload. Employees without UAN will have a blank UAN column in the download.
+      </div>
+
+      {/* Consolidation section */}
+      <div style={card}>
+        <div style={{...sec,background:"#2d4a1a"}}>
+          <span>🔀 Consolidate with Other Institution's PF File</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Upload their Excel → app fills blanks from our payroll → download merged file</span>
+        </div>
+        <div style={{padding:16}}>
+
+          {/* Upload area */}
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+            <input ref={extRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
+              onChange={e=>{if(e.target.files[0])loadExtFile(e.target.files[0]);}}/>
+            <button onClick={()=>extRef.current.click()} style={{...btn("#2d4a1a","white"),fontSize:13}}>
+              📂 Upload Institution Excel
+            </button>
+            {extFile&&<div style={{fontSize:12,color:"#2d4a1a",fontWeight:700}}>
+              ✅ {extFile.name} — {extFile.blankRows.length} blank rows found
+            </div>}
+          </div>
+
+          {/* Preview of blank rows */}
+          {extFile&&extFile.blankRows.length>0&&!mergeResult&&(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.muted,marginBottom:6}}>
+                Blank rows in uploaded file ({extFile.blankRows.length} employees):
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+                {extFile.blankRows.map((br,i)=>(
+                  <span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>
+                    {br.name}
+                  </span>
+                ))}
+              </div>
+              <button onClick={doMerge} style={{...btn("#1a5a00","white"),fontWeight:800,fontSize:13}}>
+                🔀 Match &amp; Merge with Our Payroll
+              </button>
+            </div>
+          )}
+
+          {/* Merge result */}
+          {mergeResult&&(
+            <div>
+              {/* Summary */}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+                <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#14532d",fontWeight:700}}>MATCHED</div>
+                  <div style={{fontSize:22,fontWeight:900,color:"#14532d"}}>{mergeResult.matched.length}</div>
+                </div>
+                <div style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#7f1d1d",fontWeight:700}}>NOT MATCHED</div>
+                  <div style={{fontSize:22,fontWeight:900,color:"#7f1d1d"}}>{mergeResult.unmatched.length}</div>
+                </div>
+                <div style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#7a5c00",fontWeight:700}}>NOT IN EXT FILE</div>
+                  <div style={{fontSize:22,fontWeight:900,color:"#7a5c00"}}>{mergeResult.notInExt.length}</div>
+                </div>
+                <button onClick={downloadMerged} style={{...btn("#1a3d6b","white"),fontWeight:800,fontSize:14,alignSelf:"center",padding:"12px 24px"}}>
+                  ⬇️ Download Consolidated Excel
+                </button>
+              </div>
+
+              {/* Matched list */}
+              {mergeResult.matched.length>0&&(
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#14532d",marginBottom:4}}>✅ Matched & filled:</div>
+                  <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                    <thead><tr>
+                      <th style={{...thS,textAlign:"left",background:"#14532d"}}>Name in their file</th>
+                      <th style={{...thS,textAlign:"left",background:"#14532d"}}>Matched to our</th>
+                      <th style={{...thS,background:"#14532d"}}>Gross</th>
+                      <th style={{...thS,background:"#14532d"}}>PF</th>
+                    </tr></thead>
+                    <tbody>{mergeResult.matched.map((m,i)=>(
+                      <tr key={i} style={{background:i%2===0?"#f0faf4":"white"}}>
+                        <td style={tdL}>{m.extName}</td>
+                        <td style={tdL}>{m.ourName}</td>
+                        <td style={tdS}>₹{fi(m.gross)}</td>
+                        <td style={tdS}>₹{fi(m.pf)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Unmatched */}
+              {mergeResult.unmatched.length>0&&(
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#7f1d1d",marginBottom:4}}>
+                    ❌ Could not match — fill manually in downloaded file:
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {mergeResult.unmatched.map((n,i)=>(
+                      <span key={i} style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Not in ext */}
+              {mergeResult.notInExt.length>0&&(
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#7a5c00",marginBottom:4}}>
+                    ⚠️ Our employees not found in their file (may need separate row):
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {mergeResult.notInExt.map((n,i)=>(
+                      <span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
