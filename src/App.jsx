@@ -962,8 +962,73 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const allRows=settle.filter(s=>s.emp.pfEsi);
   const [extFile,setExtFile]=useState(null);
   const [mergeResult,setMergeResult]=useState(null);
-  const [uanEdits,setUanEdits]=useState({});  // empId → uan string
+  const [uanEdits,setUanEdits]=useState({});
+  const [uanImportResult,setUanImportResult]=useState(null);
   const extRef=useRef();
+  const uanImportRef=useRef();
+
+  const importUANs=(file)=>{
+    const loadXLSX=()=>{
+      const XLSX=window.XLSX;
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const wb=XLSX.read(e.target.result,{type:"array",raw:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+        // Build lookup: normalised name → UAN from ALL rows
+        const norm=s=>s?String(s).toLowerCase().replace(/[^a-z]/g,""):"";
+        const fileMap={};
+        data.forEach(row=>{
+          const uan=String(row[0]||"").replace(/,/g,"").trim();
+          const name=String(row[1]||"").trim();
+          if(uan&&name&&uan.length>5) fileMap[norm(name)]={uan,name};
+        });
+        // Match our PF-eligible employees
+        const details=[];
+        let saved=0,skipped=0,notFound=0;
+        const updatedEmps=emps.map(emp=>{
+          if(!emp.pfEsi) return emp;
+          const en=norm(emp.name);
+          const enWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=4);
+          // Try exact then word match
+          let match=fileMap[en];
+          if(!match){
+            const key=Object.keys(fileMap).find(k=>
+              enWords.some(w=>k.includes(w))||
+              fileMap[k]&&norm(fileMap[k].name).split("").filter(c=>en.includes(c)).length>en.length*0.8
+            );
+            if(key) match=fileMap[key];
+          }
+          if(match){
+            if(emp.uan&&emp.uan===match.uan){
+              details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"existing"});
+              skipped++;
+              return emp;
+            } else {
+              details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"saved"});
+              saved++;
+              return {...emp,uan:match.uan};
+            }
+          } else {
+            details.push({ourName:emp.name,extName:"—",uan:"—",status:"notfound"});
+            notFound++;
+            return emp;
+          }
+        });
+        write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
+        setUanImportResult({saved,skipped,notFound,details});
+        showToast(`✅ UAN import done — ${saved} saved, ${skipped} already set, ${notFound} not found`);
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    if(window.XLSX) loadXLSX();
+    else{
+      const s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload=loadXLSX;
+      document.head.appendChild(s);
+    }
+  };
 
   const totGross=pfRows.reduce((s,r)=>s+r.baseSal,0);
   const totBasis=pfRows.reduce((s,r)=>s+r2(r.baseSal*0.70),0);
@@ -1289,10 +1354,48 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         </div>
       </div>
 
-      {/* Note about UAN */}
-      <div style={{...card,padding:14,fontSize:12,color:T.muted,background:"#fffbea",border:`1px solid #f0c040`}}>
-        💡 <b>Note:</b> The PF Upload XLS uses the employee's <b>UAN</b> field. Make sure UAN numbers are filled in the Employees tab for PF portal upload. Employees without UAN will have a blank UAN column in the download.
-      </div>
+        {/* ── Import UANs from consolidated file ── */}
+        <div style={card}>
+          <div style={{...sec,background:"#1a3d6b"}}>
+            <span>🔑 Import UANs from Consolidated File</span>
+            <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Upload the consolidated Trust PF file → matches our employees by name → saves UANs</span>
+          </div>
+          <div style={{padding:16}}>
+            <div style={{fontSize:12,color:T.muted,marginBottom:12}}>
+              Upload the final consolidated Trust PF file. The app will scan all rows, match our employees by name, and save their UAN numbers to the employee master — ready for next month's PF upload XLS.
+            </div>
+            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+              <input ref={uanImportRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0]);}}/>
+              <button onClick={()=>uanImportRef.current.click()} style={{...btn("#1a3d6b","white"),fontSize:13}}>
+                📂 Upload Consolidated PF File
+              </button>
+              {uanImportResult&&<div style={{fontSize:12,color:"#14532d",fontWeight:700}}>
+                ✅ {uanImportResult.saved} UANs saved · {uanImportResult.skipped} already had UAN · {uanImportResult.notFound} not matched
+              </div>}
+            </div>
+            {uanImportResult&&uanImportResult.details.length>0&&(
+              <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                <thead><tr>
+                  <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Our Employee</th>
+                  <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Matched in file as</th>
+                  <th style={{...thS,background:"#1a3d6b"}}>UAN</th>
+                  <th style={{...thS,background:"#1a3d6b"}}>Status</th>
+                </tr></thead>
+                <tbody>{uanImportResult.details.map((d,i)=>(
+                  <tr key={i} style={{background:i%2===0?T.white:"#f0f5ff"}}>
+                    <td style={tdL}><b>{d.ourName}</b></td>
+                    <td style={{...tdL,color:T.muted}}>{d.extName}</td>
+                    <td style={{...tdS,fontFamily:"monospace"}}>{d.uan}</td>
+                    <td style={{...tdS,color:d.status==="saved"?"#14532d":d.status==="existing"?"#1a3d6b":"#7f1d1d",fontWeight:700}}>
+                      {d.status==="saved"?"✅ Saved":d.status==="existing"?"✓ Already had":d.status==="notfound"?"❌ Not found":""}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        </div>
 
       {/* Consolidation section */}
       <div style={card}>
