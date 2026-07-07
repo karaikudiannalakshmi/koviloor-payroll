@@ -978,20 +978,21 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       const XLSX=window.XLSX;
       const reader=new FileReader();
       reader.onload=e=>{
-        const wb=XLSX.read(e.target.result,{type:"array"});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
-        // Find blank rows — rows where col C (index 2) is null/0 but col A (UAN) exists
+        const rawWb=XLSX.read(e.target.result,{type:"array",cellFormula:true,bookVBA:true});
+        const sheetName=rawWb.SheetNames[0];
+        const ws=rawWb.Sheets[sheetName];
+        // Use dense array output to detect blanks; raw:true gives stored value not formula result
+        const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         const blankRows=[];
         data.forEach((row,idx)=>{
           const uan=row[0];
           const name=row[1];
           const gross=row[2];
-          if(uan&&name&&(gross===null||gross===0||gross==="")){
-            blankRows.push({rowIdx:idx,uan:String(uan),name:String(name).trim(),row:[...row]});
+          if(uan&&name&&(gross===null||gross===0||gross===""||gross===undefined)){
+            blankRows.push({rowIdx:idx,uan:String(uan),name:String(name).trim()});
           }
         });
-        setExtFile({name:file.name,data,blankRows});
+        setExtFile({name:file.name,sheetName,data,blankRows,rawWb});
         setMergeResult(null);
       };
       reader.readAsArrayBuffer(file);
@@ -1039,16 +1040,24 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
           Math.round(our.baseSal), basis, basis, basis,
           epf, eps, diff, ncp, 0
         ];
-        matched.push({extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf,empId:our.emp.id,extUan:br.uan,existingUan:our.emp.uan||""});
+        matched.push({rowIdx:br.rowIdx,extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf,empId:our.emp.id,extUan:br.uan,existingUan:our.emp.uan||""});
       } else {
         unmatched.push(br.name);
       }
     });
 
-    // Our employees not found in ext file
+    // Our employees not found anywhere in ext file (blank OR filled rows)
+    const allExtNames=extFile.data
+      .filter(row=>row[0]&&row[1])
+      .map(row=>norm(String(row[1])));
+
     allRows.forEach(s=>{
       const sn=norm(s.emp.name);
-      const found=extFile.blankRows.some(br=>norm(br.name)===sn||norm(br.name).includes(sn)||sn.includes(norm(br.name)));
+      const snWords=s.emp.name.trim().toLowerCase().split(/\s+/).filter(w=>w.length>2);
+      const found=allExtNames.some(en=>
+        en===sn ||
+        snWords.some(w=>w.length>=4&&en.includes(w))
+      );
       if(!found) notInExt.push(s.emp.name);
     });
 
@@ -1060,13 +1069,18 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   };
 
   const downloadMerged=()=>{
-    if(!mergeResult)return;
+    if(!mergeResult||!extFile?.rawWb)return;
     const XLSX=window.XLSX;
-    const ws=XLSX.utils.aoa_to_sheet(mergeResult.mergedData);
-    const wb2=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb2,ws,"KOVILOOR MADALAYAM");
+    const wb=extFile.rawWb;
+    const ws=wb.Sheets[extFile.sheetName];
+    // Only write gross (col C) for matched rows — all other cells untouched
+    // This preserves all existing formulas, formats and data
+    mergeResult.matched.forEach(m=>{
+      const cellAddr=XLSX.utils.encode_cell({r:m.rowIdx, c:2}); // col C = index 2
+      ws[cellAddr]={t:"n", v:m.gross}; // number cell
+    });
     const fname=extFile.name.replace(/\.xlsx?$/i,`_Consolidated_${MONTHS[month]}_${year}.xlsx`);
-    XLSX.writeFile(wb2,fname);
+    XLSX.writeFile(wb, fname);
   };
 
   const saveUANs=(emps)=>{
@@ -1333,7 +1347,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
                   <div style={{fontSize:22,fontWeight:900,color:"#7f1d1d"}}>{mergeResult.unmatched.length}</div>
                 </div>
                 <div style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#7a5c00",fontWeight:700}}>NOT IN EXT FILE</div>
+                  <div style={{fontSize:10,color:"#7a5c00",fontWeight:700}}>OUR STAFF NOT IN THEIR FILE</div>
                   <div style={{fontSize:22,fontWeight:900,color:"#7a5c00"}}>{mergeResult.notInExt.length}</div>
                 </div>
                 <button onClick={downloadMerged} style={{...btn("#1a3d6b","white"),fontWeight:800,fontSize:14,alignSelf:"center",padding:"12px 24px"}}>
