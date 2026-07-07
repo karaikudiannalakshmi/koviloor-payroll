@@ -1017,12 +1017,15 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
 
     extFile.blankRows.forEach(br=>{
       const bn=norm(br.name);
-      // Try exact then partial match
+      const bnWords=br.name.trim().toLowerCase().split(/\s+/).filter(w=>w.length>2);
+      // Try exact match first, then word-level match (at least one significant word must match)
       let our=ourMap[bn];
       if(!our){
         const keys=Object.keys(ourMap);
-        const key=keys.find(k=>k.includes(bn)||bn.includes(k)||
-          bn.split("").filter(c=>k.includes(c)).length>Math.max(bn.length,k.length)*0.7);
+        const key=keys.find(k=>{
+          // At least one word of 4+ chars from their name must appear in our name
+          return bnWords.some(w=>w.length>=4&&k.includes(w));
+        });
         if(key)our=ourMap[key];
       }
       if(our){
