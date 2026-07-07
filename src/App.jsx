@@ -966,8 +966,9 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const [uanImportResult,setUanImportResult]=useState(null);
   const extRef=useRef();
   const uanImportRef=useRef();
+  const uanForceRef=useRef();
 
-  const importUANs=(file)=>{
+  const importUANs=(file,forceOverwrite=false)=>{
     const loadXLSX=()=>{
       const XLSX=window.XLSX;
       const reader=new FileReader();
@@ -975,10 +976,6 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const wb=XLSX.read(e.target.result,{type:"array",raw:true});
         const ws=wb.Sheets[wb.SheetNames[0]];
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
-
-        // Build two lookups from the file:
-        // 1. UAN → {uan, name}  (for employees who already have UAN in our master)
-        // 2. normName → {uan, name}  (for name matching, strict word match only)
         const norm=s=>String(s||"").toLowerCase().replace(/[^a-z]/g,"");
         const byUan={};
         const byName={};
@@ -990,66 +987,45 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             byName[norm(name)]={uan,name};
           }
         });
-
         const details=[];
         let saved=0,skipped=0,notFound=0;
         const updatedEmps=emps.map(emp=>{
           if(!emp.pfEsi) return emp;
-
           let match=null;
-
-          // Step 1: match by existing UAN (most reliable)
-          if(emp.uan&&byUan[emp.uan]){
-            match=byUan[emp.uan];
-          }
-
-          // Step 2: exact normalised name match
-          if(!match){
-            const en=norm(emp.name);
-            if(byName[en]) match=byName[en];
-          }
-
-          // Step 3: all words of 5+ chars must appear in their name
+          // Step 1: match by existing UAN only if NOT force overwrite
+          if(!forceOverwrite&&emp.uan&&byUan[emp.uan]) match=byUan[emp.uan];
+          // Step 2: exact normalised name
+          if(!match){const en=norm(emp.name);if(byName[en])match=byName[en];}
+          // Step 3: all words of 5+ chars must match
           if(!match){
             const ourWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=5);
             if(ourWords.length>0){
-              const key=Object.keys(byName).find(k=>
-                ourWords.every(w=>k.includes(w))
-              );
-              if(key) match=byName[key];
+              const key=Object.keys(byName).find(k=>ourWords.every(w=>k.includes(w)));
+              if(key)match=byName[key];
             }
           }
-
           if(match){
-            if(emp.uan&&emp.uan===match.uan){
+            const sameUan=emp.uan&&emp.uan===match.uan;
+            if(sameUan&&!forceOverwrite){
               details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"existing"});
-              skipped++;
-              return emp;
+              skipped++; return emp;
             } else {
               details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"saved"});
-              saved++;
-              return {...emp,uan:match.uan};
+              saved++; return {...emp,uan:match.uan};
             }
           } else {
             details.push({ourName:emp.name,extName:"—",uan:"—",status:"notfound"});
-            notFound++;
-            return emp;
+            notFound++; return emp;
           }
         });
-
         write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
-        setUanImportResult({saved,skipped,notFound,details});
-        showToast(`✅ UAN import done — ${saved} saved, ${skipped} already set, ${notFound} not found`);
+        setUanImportResult({saved,skipped,notFound,details,forced:forceOverwrite});
+        showToast(`✅ UAN import done — ${saved} saved, ${skipped} unchanged, ${notFound} not found`);
       };
       reader.readAsArrayBuffer(file);
     };
-    if(window.XLSX) loadXLSX();
-    else{
-      const s=document.createElement("script");
-      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      s.onload=loadXLSX;
-      document.head.appendChild(s);
-    }
+    if(window.XLSX)loadXLSX();
+    else{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=loadXLSX;document.head.appendChild(s);}
   };
 
   const totGross=pfRows.reduce((s,r)=>s+r.baseSal,0);
@@ -1388,12 +1364,17 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             </div>
             <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
               <input ref={uanImportRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
-                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0]);}}/>
+                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],false);e.target.value="";}}/>
+              <input ref={uanForceRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],true);e.target.value="";}}/>
               <button onClick={()=>uanImportRef.current.click()} style={{...btn("#1a3d6b","white"),fontSize:13}}>
                 📂 Upload Consolidated PF File
               </button>
-              {uanImportResult&&<div style={{fontSize:12,color:"#14532d",fontWeight:700}}>
-                ✅ {uanImportResult.saved} UANs saved · {uanImportResult.skipped} already had UAN · {uanImportResult.notFound} not matched
+              <button onClick={()=>uanForceRef.current.click()} style={{...btn("#7f1d1d","white",true),fontSize:12}}>
+                🔄 Force Re-import (overwrite existing UANs)
+              </button>
+              {uanImportResult&&<div style={{fontSize:12,color:uanImportResult.forced?"#7f1d1d":"#14532d",fontWeight:700}}>
+                {uanImportResult.forced?"🔄":"✅"} {uanImportResult.saved} UANs saved · {uanImportResult.skipped} unchanged · {uanImportResult.notFound} not matched
               </div>}
             </div>
             {uanImportResult&&uanImportResult.details.length>0&&(
