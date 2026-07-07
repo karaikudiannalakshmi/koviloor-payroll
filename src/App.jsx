@@ -975,30 +975,51 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const wb=XLSX.read(e.target.result,{type:"array",raw:true});
         const ws=wb.Sheets[wb.SheetNames[0]];
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
-        // Build lookup: normalised name → UAN from ALL rows
-        const norm=s=>s?String(s).toLowerCase().replace(/[^a-z]/g,""):"";
-        const fileMap={};
+
+        // Build two lookups from the file:
+        // 1. UAN → {uan, name}  (for employees who already have UAN in our master)
+        // 2. normName → {uan, name}  (for name matching, strict word match only)
+        const norm=s=>String(s||"").toLowerCase().replace(/[^a-z]/g,"");
+        const byUan={};
+        const byName={};
         data.forEach(row=>{
           const uan=String(row[0]||"").replace(/,/g,"").trim();
           const name=String(row[1]||"").trim();
-          if(uan&&name&&uan.length>5) fileMap[norm(name)]={uan,name};
+          if(uan&&name&&/^\d{10,12}$/.test(uan)){
+            byUan[uan]={uan,name};
+            byName[norm(name)]={uan,name};
+          }
         });
-        // Match our PF-eligible employees
+
         const details=[];
         let saved=0,skipped=0,notFound=0;
         const updatedEmps=emps.map(emp=>{
           if(!emp.pfEsi) return emp;
-          const en=norm(emp.name);
-          const enWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=4);
-          // Try exact then word match
-          let match=fileMap[en];
-          if(!match){
-            const key=Object.keys(fileMap).find(k=>
-              enWords.some(w=>k.includes(w))||
-              fileMap[k]&&norm(fileMap[k].name).split("").filter(c=>en.includes(c)).length>en.length*0.8
-            );
-            if(key) match=fileMap[key];
+
+          let match=null;
+
+          // Step 1: match by existing UAN (most reliable)
+          if(emp.uan&&byUan[emp.uan]){
+            match=byUan[emp.uan];
           }
+
+          // Step 2: exact normalised name match
+          if(!match){
+            const en=norm(emp.name);
+            if(byName[en]) match=byName[en];
+          }
+
+          // Step 3: all words of 5+ chars must appear in their name
+          if(!match){
+            const ourWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=5);
+            if(ourWords.length>0){
+              const key=Object.keys(byName).find(k=>
+                ourWords.every(w=>k.includes(w))
+              );
+              if(key) match=byName[key];
+            }
+          }
+
           if(match){
             if(emp.uan&&emp.uan===match.uan){
               details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"existing"});
@@ -1015,6 +1036,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             return emp;
           }
         });
+
         write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
         setUanImportResult({saved,skipped,notFound,details});
         showToast(`✅ UAN import done — ${saved} saved, ${skipped} already set, ${notFound} not found`);
