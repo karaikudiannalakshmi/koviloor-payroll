@@ -309,7 +309,7 @@ function Main(){
     r.readAsText(f);e.target.value="";
   };
 
-  const ALL_TABS=[{id:"att",icon:"📅",label:"Attendance"},{id:"salary",icon:"💰",label:"Salary"},{id:"ded",icon:"📋",label:"Deductions"},{id:"payslip",icon:"🧾",label:"Payslips"},{id:"bank",icon:"🏦",label:"Bank Upload"},{id:"emps",icon:"👥",label:"Employees"},{id:"depts",icon:"🏛️",label:"Departments"}];
+  const ALL_TABS=[{id:"att",icon:"📅",label:"Attendance"},{id:"salary",icon:"💰",label:"Salary"},{id:"ded",icon:"📋",label:"Deductions"},{id:"pfesi",icon:"🏛",label:"PF & ESI"},{id:"payslip",icon:"🧾",label:"Payslips"},{id:"bank",icon:"🏦",label:"Bank Upload"},{id:"emps",icon:"👥",label:"Employees"},{id:"depts",icon:"🏛️",label:"Departments"}];
   const TABS=role==="admin"?ALL_TABS:ALL_TABS.filter(t=>t.id==="att");
   const safeTab=TABS.find(t=>t.id===tab)?tab:"att";
 
@@ -376,7 +376,8 @@ function Main(){
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
         {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write,isOperator:role==="operator"}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
-        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}}/>}
+        {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,month,year,showToast,write,d}}/>}
+        {safeTab==="pfesi"  &&role==="admin"&&<PFESITab {...{settle,depts,month,year,pf,esi,write,d,mkey}}/>}
         {safeTab==="payslip"&&role==="admin"&&<PayslipTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="bank"   &&role==="admin"&&<BankTab {...{settle,depts,activeDept,month,year,dbAcc,write,d}}/>}
         {safeTab==="emps"   &&role==="admin"&&<EmpsTab {...{emps,depts,activeDept,nid,write,d}}/>}
@@ -752,7 +753,7 @@ function SalaryTab({settle,depts,activeDept,month,year}){
 }
 
 // ── DEDUCTIONS ────────────────────────────────────────────────────
-function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,write,d}){
+function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
   const mkey=`${year}_${month}`;
   const [advEmpId,setAdvEmpId]=useState(null);
   const [advForm,setAdvForm]=useState({date:"",amount:""});
@@ -951,40 +952,224 @@ function DedTab({emps,depts,activeDept,adv,loan,pf,esi,month,year,showToast,writ
         </table></div>
       </div>
 
-      {/* PF, ESI */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
-        {[
-          {title:"🏛 PF Deduction",sub:"Provident Fund — 12% of 70% of actual salary earned (auto for eligible)",bg:T.blue,key:"pf",state:pf,rowBg:["white",T.blueL],tc:"#aac4ff",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.12):null},
-          {title:"🏥 ESI Deduction",sub:"Employee State Insurance — 0.75% of 70% of actual salary earned (auto for eligible)",bg:T.green,key:"esi",state:esi,rowBg:["white",T.greenL],tc:"#90eeda",auto:e=>e.pfEsi?r2(r2(e.rate*0.70)*0.0075):null},
-        ].map(({title,sub,bg,key,state,rowBg,tc,auto})=>(
-          <div key={key} style={card}>
-            <div style={{...sec,background:bg}}><span>{title}</span><span style={{fontSize:10,fontWeight:400,opacity:0.8}}>{sub}</span></div>
-            <table style={{borderCollapse:"collapse",width:"100%"}}>
-              <thead><tr><th style={{...thS,textAlign:"left",background:bg}}>Employee</th><th style={{...thS,background:bg}}>Amount (₹)</th></tr></thead>
-              <tbody>{de.map((e,i)=>{
-                const autoVal=auto?auto(e):null;
-                return(
-                  <tr key={e.id} style={{background:rowBg[i%2]}}>
-                    <td style={tdL}>
-                      <b>{e.name}</b>
-                      {autoVal!==null&&<span style={{marginLeft:6,fontSize:10,background:"#dbeafe",color:"#1e3a8a",padding:"1px 6px",borderRadius:8,fontWeight:700}}>Auto ₹{fi(autoVal)}</span>}
-                    </td>
-                    <td style={{...tdS,padding:"5px 8px"}}>
-                      {autoVal!==null
-                        ?<div style={{textAlign:"right",fontWeight:700,color:"#1e3a8a",fontSize:14}}>₹{fi(autoVal)}</div>
-                        :<input type="number" value={state[e.id]??""} onChange={ev=>write({[`${key}_${mkey}`]:{...state,[e.id]:ev.target.value}})} placeholder="0" style={{...inp(120),textAlign:"right",padding:"5px 7px"}}/>
-                      }
-                    </td>
-                  </tr>
-                );
-              })}</tbody>
-              <tfoot><tr style={{background:bg,color:"white"}}>
-                <td style={{...tdL,color:"white",fontWeight:700}}>Total</td>
-                <td style={{...tdS,color:tc,fontWeight:800}}>₹{fi(de.reduce((s,e)=>{const av=auto?auto(e):null;return s+(av!==null?av:fv(state[e.id]));},0))}</td>
-              </tr></tfoot>
-            </table>
+    </div>
+  );
+}
+
+// ── PF & ESI TAB ──────────────────────────────────────────────────
+function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey}){
+  // All PF+ESI eligible employees across ALL departments
+  const pfRows=settle.filter(s=>s.emp.pfEsi&&s.gross>0);
+  const allRows=settle.filter(s=>s.emp.pfEsi); // include zero gross too (to show on register)
+
+  const totGross=pfRows.reduce((s,r)=>s+r.baseSal,0);
+  const totBasis=pfRows.reduce((s,r)=>s+r2(r.baseSal*0.70),0);
+  const totPF=pfRows.reduce((s,r)=>s+r.pfAmt,0);
+  const totESI=pfRows.reduce((s,r)=>s+r.esiAmt,0);
+
+  const printPF=()=>{
+    const w=window.open("","_blank","width=1100,height=800");
+    w.document.write(`<!DOCTYPE html><html><head><title>PF & ESI Register</title><style>
+      body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:11px;}
+      h2{margin:0;font-size:15px;}
+      .hdr{background:#1a3d6b;color:white;padding:12px 18px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;}
+      .sub{font-size:10px;color:#aac4ff;margin-top:3px;}
+      table{width:100%;border-collapse:collapse;margin-top:0;}
+      th{background:#1a3d6b;color:white;padding:6px 7px;text-align:center;font-size:10px;white-space:nowrap;}
+      th.left{text-align:left;}
+      td{padding:5px 7px;border-bottom:1px solid #eee;text-align:right;font-size:11px;}
+      td.left{text-align:left;}
+      td.dept{font-size:9px;color:#888;}
+      tr:nth-child(even) td{background:#f0f5ff;}
+      tfoot td{background:#1a3d6b;color:white;font-weight:800;padding:7px;}
+      .sign{margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
+      @media print{button{display:none!important;}}
+    </style></head><body>
+    <div class="hdr">
+      <div><h2>🏛 PF & ESI Register — Koviloor Madalayam</h2>
+      <div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${pfRows.length} eligible staff &nbsp;|&nbsp; All Departments Combined</div></div>
+      <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th class="left">#</th>
+        <th class="left">Employee</th>
+        <th class="left">Dept</th>
+        <th>Gross Earned</th>
+        <th>PF Basis (70%)</th>
+        <th>PF @ 12%</th>
+        <th>Ee Share (8.33%)</th>
+        <th>Er Share (3.67%)</th>
+        <th>ESI @ 0.75%</th>
+        <th>Total PF+ESI</th>
+      </tr></thead>
+      <tbody>${allRows.map((s,i)=>{
+        const basis=r2(s.baseSal*0.70);
+        const ee=r2(basis*0.0833);
+        const er=r2(s.pfAmt-ee);
+        const dept=depts.find(d=>d.id===s.emp.deptId);
+        return`<tr>
+          <td class="left">${i+1}</td>
+          <td class="left"><b>${s.emp.name}</b></td>
+          <td class="left dept">${dept?.name||""}</td>
+          <td>${s.baseSal>0?`₹${fi(s.baseSal)}`:'<span style="color:#bbb">Absent</span>'}</td>
+          <td>${basis>0?`₹${fi(basis)}`:"—"}</td>
+          <td>${s.pfAmt>0?`₹${fi(s.pfAmt)}`:"—"}</td>
+          <td>${ee>0?`₹${fi(ee)}`:"—"}</td>
+          <td>${er>0?`₹${fi(er)}`:"—"}</td>
+          <td>${s.esiAmt>0?`₹${fi(s.esiAmt)}`:"—"}</td>
+          <td>${(s.pfAmt+s.esiAmt)>0?`<b>₹${fi(s.pfAmt+s.esiAmt)}</b>`:"—"}</td>
+        </tr>`;}).join("")}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="3" class="left">TOTAL — ${pfRows.length} staff</td>
+        <td>₹${fi(totGross)}</td>
+        <td>₹${fi(totBasis)}</td>
+        <td>₹${fi(totPF)}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r2(r.baseSal*0.70)*0.0833),0))}</td>
+        <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r.pfAmt-r2(r2(r.baseSal*0.70)*0.0833)),0))}</td>
+        <td>₹${fi(totESI)}</td>
+        <td>₹${fi(totPF+totESI)}</td>
+      </tr></tfoot>
+    </table>
+    <div class="sign">
+      <span>Prepared by: ___________________</span>
+      <span>Verified by: ___________________</span>
+      <span>Authorised by: ___________________</span>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
+
+  const downloadXLS=()=>{
+    const script=document.createElement("script");
+    script.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    script.onload=()=>{
+      const XLSX=window.XLSX;
+      // Columns matching PF portal upload format
+      const header=["UAN","Member Name","Gross Wages","EPF Wages","EPS Wages","EDLI Wages","EPF Contribution due","EPS Contribution due","EPF EPS Diff","NCP Days","Refund of Advances"];
+      const dataRows=allRows.map(s=>{
+        const basis=Math.round(Math.min(r2(s.baseSal*0.70),15000));
+        const epsBasis=Math.min(basis,15000);
+        const epf=Math.round(basis*0.12);
+        const eps=Math.round(epsBasis*0.0833);
+        const diff=epf-eps;
+        const ncpDays=s.daysWorked===0?26:0;
+        return [
+          s.emp.uan||"",
+          s.emp.name,
+          Math.round(s.baseSal),
+          basis,
+          epsBasis,
+          basis,
+          epf,
+          eps,
+          diff,
+          ncpDays,
+          0
+        ];
+      });
+      const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
+      ws["!cols"]=[{wch:15},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12},{wch:18},{wch:18},{wch:14},{wch:10},{wch:18}];
+      const wb2=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb2,ws,"PF Upload");
+      XLSX.writeFile(wb2,`PF_Upload_${MONTHS[month]}_${year}.xlsx`);
+    };
+    document.head.appendChild(script);
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={card}>
+        <div style={{...sec,background:"#1a3d6b"}}>
+          <span>🏛 PF &amp; ESI Register — All Departments — {MONTHS[month]} {year}</span>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={printPF} style={btn("#1a3d6b","white",true)}>🖨️ Print Register</button>
+            <button onClick={downloadXLS} style={btn(T.saffron,T.maroonD,true)}>⬇️ PF Upload XLS</button>
           </div>
-        ))}
+        </div>
+
+        {/* Summary boxes */}
+        <div style={{padding:"12px 16px",display:"flex",gap:12,flexWrap:"wrap"}}>
+          {[
+            {label:"Eligible Staff",val:pfRows.length,unit:"employees",bg:"#e8f0ff",tc:"#1a3d6b"},
+            {label:"Total Gross",val:`₹${fi(totGross)}`,bg:"#fdf5e8",tc:T.maroon},
+            {label:"PF Basis (70%)",val:`₹${fi(totBasis)}`,bg:"#edf5ff",tc:"#1a3d6b"},
+            {label:"Total PF (12%)",val:`₹${fi(totPF)}`,bg:"#dbeafe",tc:"#1e3a8a"},
+            {label:"Total ESI (0.75%)",val:`₹${fi(totESI)}`,bg:"#dcfce7",tc:"#14532d"},
+            {label:"Grand Total",val:`₹${fi(totPF+totESI)}`,bg:"#1a3d6b",tc:"white"},
+          ].map(x=>(
+            <div key={x.label} style={{background:x.bg,borderRadius:8,padding:"10px 16px",textAlign:"center",minWidth:110}}>
+              <div style={{fontSize:9,color:x.tc==="white"?"#aac4ff":T.muted,fontWeight:700,textTransform:"uppercase"}}>{x.label}</div>
+              <div style={{fontSize:18,fontWeight:900,color:x.tc,marginTop:2}}>{x.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Per-department breakdown */}
+        <div style={{padding:"0 16px 12px"}}>
+          <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:6}}>BY DEPARTMENT</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {depts.map(dept=>{
+              const dr=pfRows.filter(s=>s.emp.deptId===dept.id);
+              if(dr.length===0)return null;
+              return <div key={dept.id} style={{background:T.saffronPale,border:`2px solid ${dept.color}`,borderRadius:6,padding:"5px 12px",fontSize:11}}>
+                <b style={{color:dept.color}}>{dept.name}</b> · {dr.length} staff · PF ₹{fi(dr.reduce((s,r)=>s+r.pfAmt,0))} · ESI ₹{fi(dr.reduce((s,r)=>s+r.esiAmt,0))}
+              </div>;
+            })}
+          </div>
+        </div>
+
+        {/* Full register table */}
+        <div style={{overflowX:"auto"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr>
+              <th style={{...thS,textAlign:"left",background:"#1a3d6b",minWidth:30}}>#</th>
+              <th style={{...thS,textAlign:"left",background:"#1a3d6b",minWidth:150}}>Employee</th>
+              <th style={{...thS,textAlign:"left",background:"#1a3d6b",minWidth:110}}>Dept</th>
+              <th style={{...thS,background:"#2d3d6b"}}>Gross</th>
+              <th style={{...thS,background:"#2d3d6b"}}>PF Basis (70%)</th>
+              <th style={{...thS,background:"#1a5a8b"}}>PF (12%)</th>
+              <th style={{...thS,background:"#1a5a8b"}}>Ee (8.33%)</th>
+              <th style={{...thS,background:"#1a5a8b"}}>Er (3.67%)</th>
+              <th style={{...thS,background:"#145214"}}>ESI (0.75%)</th>
+              <th style={{...thS,background:"#6b1a1a"}}>Total</th>
+            </tr></thead>
+            <tbody>{allRows.map((s,i)=>{
+              const basis=r2(s.baseSal*0.70);
+              const ee=r2(basis*0.0833);
+              const er=r2(s.pfAmt-ee);
+              const dept=depts.find(d=>d.id===s.emp.deptId);
+              return <tr key={s.emp.id} style={{background:i%2===0?T.white:"#f0f5ff"}}>
+                <td style={{...tdS,color:T.muted}}>{i+1}</td>
+                <td style={tdL}><b>{s.emp.name}</b></td>
+                <td style={{...tdL,fontSize:11,color:T.muted}}>{dept?.name}</td>
+                <td style={{...tdS,color:s.baseSal>0?T.maroon:"#bbb"}}>{s.baseSal>0?`₹${fi(s.baseSal)}`:"Absent"}</td>
+                <td style={{...tdS,color:"#2d3d6b"}}>{basis>0?`₹${fi(basis)}`:"—"}</td>
+                <td style={{...tdS,color:"#1a5a8b",fontWeight:700}}>{s.pfAmt>0?`₹${fi(s.pfAmt)}`:"—"}</td>
+                <td style={{...tdS,color:"#1a5a8b"}}>{ee>0?`₹${fi(ee)}`:"—"}</td>
+                <td style={{...tdS,color:"#1a5a8b"}}>{er>0?`₹${fi(er)}`:"—"}</td>
+                <td style={{...tdS,color:"#145214",fontWeight:700}}>{s.esiAmt>0?`₹${fi(s.esiAmt)}`:"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:T.maroon}}>{(s.pfAmt+s.esiAmt)>0?`₹${fi(s.pfAmt+s.esiAmt)}`:"—"}</td>
+              </tr>;
+            })}</tbody>
+            <tfoot><tr style={{background:"#1a3d6b"}}>
+              <td colSpan={3} style={{...tdL,color:"white",fontWeight:700}}>TOTAL — {pfRows.length} eligible staff</td>
+              <td style={{...tdS,color:"#ffd080",fontWeight:800}}>₹{fi(totGross)}</td>
+              <td style={{...tdS,color:"#aac4ff",fontWeight:800}}>₹{fi(totBasis)}</td>
+              <td style={{...tdS,color:"#60a5fa",fontWeight:800}}>₹{fi(totPF)}</td>
+              <td style={{...tdS,color:"#60a5fa",fontWeight:800}}>₹{fi(pfRows.reduce((s,r)=>s+r2(r2(r.baseSal*0.70)*0.0833),0))}</td>
+              <td style={{...tdS,color:"#60a5fa",fontWeight:800}}>₹{fi(pfRows.reduce((s,r)=>s+r2(r.pfAmt-r2(r2(r.baseSal*0.70)*0.0833)),0))}</td>
+              <td style={{...tdS,color:"#86efac",fontWeight:800}}>₹{fi(totESI)}</td>
+              <td style={{...tdS,color:T.saffronL,fontWeight:900,fontSize:14}}>₹{fi(totPF+totESI)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Note about UAN */}
+      <div style={{...card,padding:14,fontSize:12,color:T.muted,background:"#fffbea",border:`1px solid #f0c040`}}>
+        💡 <b>Note:</b> The PF Upload XLS uses the employee's <b>UAN</b> field. Make sure UAN numbers are filled in the Employees tab for PF portal upload. Employees without UAN will have a blank UAN column in the download.
       </div>
     </div>
   );
@@ -1208,11 +1393,11 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",uan:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:ed.daily?"Daily Wage Rate (₹)*":"Monthly Rate (₹)*",k:"rate",t:"number",ph:ed.daily?"e.g. 400 per day":"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
+          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:ed.daily?"Daily Wage Rate (₹)*":"Monthly Rate (₹)*",k:"rate",t:"number",ph:ed.daily?"e.g. 400 per day":"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"UAN (PF Portal)",k:"uan",t:"text",ph:"12-digit UAN number"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
           <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
