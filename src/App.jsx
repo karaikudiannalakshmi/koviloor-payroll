@@ -1263,14 +1263,178 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
     document.head.appendChild(script);
   };
 
+  const downloadESIXLS=()=>{
+    const loadXLSX=()=>{
+      const XLSX=window.XLSX;
+      // Build rows matching Arts College ESI template format exactly:
+      // S.No | Name | Designation | ESI Number | Fixed Salary | Loss of Pay | Net Salary | Basic 70% | ESI 0.75% | ESI 3.25%
+      const title=[`ESI ${MONTHS[month].toUpperCase()}-${year}`,...Array(9).fill(null)];
+      const header=["S.No","Name","Designation","ESI NUMBER","Fixed Salary","Loss of Pay","Net Salary","Basic 70%","ESI 0.75%","ESI 3.25%"];
+      const dataRows=[];
+      let sno=1;
+      let totFixed=0,totLop=0,totNet=0,totBasic=0,totEE=0,totER=0;
+
+      // Group by department
+      const deptGroups={};
+      allRows.forEach(s=>{
+        const dname=depts.find(d=>d.id===s.emp.deptId)?.name||"Other";
+        if(!deptGroups[dname]) deptGroups[dname]=[];
+        deptGroups[dname].push(s);
+      });
+
+      Object.entries(deptGroups).forEach(([dname,emps])=>{
+        // Section header row
+        dataRows.push([dname,...Array(9).fill(null)]);
+        emps.forEach(s=>{
+          const fixed=s.emp.rate||s.baseSal;
+          const lop=s.daysWorked<24?r2((fixed/24)*(24-s.daysWorked)):0;
+          const net=r2(fixed-lop);
+          const basic=r2(net*0.70);
+          const ee=r2(basic*0.0075);
+          const er=r2(basic*0.0325);
+          dataRows.push([sno,s.emp.name,"",s.emp.esino||"",fixed,lop||null,net,basic,ee,er]);
+          totFixed+=fixed; totLop+=lop; totNet+=net;
+          totBasic+=basic; totEE+=ee; totER+=er;
+          sno++;
+        });
+      });
+
+      // Totals row
+      dataRows.push(["TOTAL",null,null,null,r2(totFixed),r2(totLop),r2(totNet),r2(totBasic),r2(totEE),r2(totER)]);
+      // Blank rows
+      dataRows.push(Array(10).fill(null));
+      dataRows.push(Array(10).fill(null));
+      // Summary block matching template
+      dataRows.push([`Employees Contribution 0.75%   =`,null,null,`RS. ${Math.round(totEE)}`,...Array(6).fill(null)]);
+      dataRows.push(Array(10).fill(null));
+      dataRows.push([`Employers Contribution: 3.25%  =`,null,null,`RS. ${Math.round(totER)}`,...Array(6).fill(null)]);
+      dataRows.push(Array(10).fill(null));
+      dataRows.push([`Total ESI Amt                  =`,null,null,`RS. ${Math.round(totEE+totER)}`,...Array(6).fill(null)]);
+
+      const ws=XLSX.utils.aoa_to_sheet([title,header,...dataRows]);
+      // Column widths matching template
+      ws["!cols"]=[{wch:6},{wch:32},{wch:18},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12}];
+      const wb2=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb2,ws,`ESI-${MONTHS[month].substr(0,3)}'${String(year).substr(2)}`);
+      XLSX.writeFile(wb2,`ESI_Upload_${MONTHS[month]}_${year}.xlsx`);
+    };
+    if(window.XLSX) loadXLSX();
+    else{
+      const s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload=loadXLSX;
+      document.head.appendChild(s);
+    }
+  };
+
+  const printESI=()=>{
+    const w=window.open("","_blank","width=1100,height=800");
+    // Recalculate using net salary (fixed - LOP) not baseSal
+    const esiCalc=allRows.map(s=>{
+      const fixed=s.emp.rate||s.baseSal;
+      const lop=s.daysWorked<24?r2((fixed/24)*(24-s.daysWorked)):0;
+      const net=r2(fixed-lop);
+      const basis=r2(net*0.70);
+      const ee=r2(basis*0.0075);
+      const er=r2(basis*0.0325);
+      return {...s,fixed,lop,net,basis,ee,er};
+    });
+    const totFixed=esiCalc.reduce((s,r)=>s+r.fixed,0);
+    const totLop=esiCalc.reduce((s,r)=>s+r.lop,0);
+    const totNet=esiCalc.reduce((s,r)=>s+r.net,0);
+    const totBasis=esiCalc.reduce((s,r)=>s+r.basis,0);
+    const totEE=esiCalc.reduce((s,r)=>s+r.ee,0);
+    const totER=esiCalc.reduce((s,r)=>s+r.er,0);
+    w.document.write(`<!DOCTYPE html><html><head><title>ESI Register</title><style>
+      body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:11px;}
+      h2{margin:0;font-size:15px;}
+      .hdr{background:#145214;color:white;padding:12px 18px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;}
+      .sub{font-size:10px;color:#a8e6a8;margin-top:3px;}
+      table{width:100%;border-collapse:collapse;margin-top:0;}
+      th{background:#145214;color:white;padding:6px 7px;text-align:center;font-size:10px;white-space:nowrap;}
+      th.left{text-align:left;}
+      td{padding:5px 7px;border-bottom:1px solid #eee;text-align:right;font-size:11px;}
+      td.left{text-align:left;}
+      td.dept{font-size:9px;color:#888;}
+      tr:nth-child(even) td{background:#f0fff0;}
+      tfoot td{background:#145214;color:white;font-weight:800;padding:7px;}
+      .summary{margin-top:18px;background:#f0fff0;border:1px solid #86efac;border-radius:6px;padding:14px 20px;display:flex;gap:40px;}
+      .sbox{text-align:center;} .sbox .lbl{font-size:9px;color:#145214;font-weight:700;text-transform:uppercase;} .sbox .val{font-size:16px;font-weight:900;color:#145214;}
+      .sign{margin-top:40px;display:flex;justify-content:space-between;font-size:11px;color:#666;}
+      .note{margin-top:12px;font-size:10px;color:#888;font-style:italic;}
+      @media print{button{display:none!important;}}
+    </style></head><body>
+    <div class="hdr">
+      <div><h2>🏥 ESI Register — Koviloor Madalayam</h2>
+      <div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${allRows.length} eligible staff &nbsp;|&nbsp; All Departments</div></div>
+      <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th class="left">#</th>
+        <th class="left">Employee</th>
+        <th class="left">Dept</th>
+        <th class="left">ESI No.</th>
+        <th>Fixed Salary</th>
+        <th>Loss of Pay</th>
+        <th>Net Salary</th>
+        <th>Basic (70%)</th>
+        <th>EE @ 0.75%</th>
+        <th>ER @ 3.25%</th>
+        <th>Total ESI</th>
+      </tr></thead>
+      <tbody>${esiCalc.map((s,i)=>{
+        const dept=depts.find(d=>d.id===s.emp.deptId);
+        return`<tr>
+          <td class="left">${i+1}</td>
+          <td class="left"><b>${s.emp.name}</b></td>
+          <td class="left dept">${dept?.name||""}</td>
+          <td class="left" style="font-family:monospace;font-size:10px;">${s.emp.esino||'<span style="color:#bbb">—</span>'}</td>
+          <td>₹${fi(s.fixed)}</td>
+          <td style="color:${s.lop>0?"#c00":"#bbb"}">${s.lop>0?`₹${fi(s.lop)}`:"—"}</td>
+          <td>₹${fi(s.net)}</td>
+          <td>${s.basis>0?`₹${fi(s.basis)}`:"—"}</td>
+          <td style="color:#145214;font-weight:700;">${s.ee>0?`₹${fi(s.ee)}`:"—"}</td>
+          <td style="color:#1a5a8b;font-weight:700;">${s.er>0?`₹${fi(s.er)}`:"—"}</td>
+          <td><b>${(s.ee+s.er)>0?`₹${fi(r2(s.ee+s.er))}`:"—"}</b></td>
+        </tr>`;}).join("")}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="4" class="left">TOTAL — ${allRows.length} staff</td>
+        <td>₹${fi(r2(totFixed))}</td>
+        <td>₹${fi(r2(totLop))}</td>
+        <td>₹${fi(r2(totNet))}</td>
+        <td>₹${fi(r2(totBasis))}</td>
+        <td>₹${fi(r2(totEE))}</td>
+        <td>₹${fi(r2(totER))}</td>
+        <td>₹${fi(r2(totEE+totER))}</td>
+      </tr></tfoot>
+    </table>
+    <div class="summary">
+      <div class="sbox"><div class="lbl">Employee Contribution (0.75%)</div><div class="val">₹${fi(r2(totEE))}</div></div>
+      <div class="sbox"><div class="lbl">Employer Contribution (3.25%)</div><div class="val">₹${fi(r2(totER))}</div></div>
+      <div class="sbox"><div class="lbl">Total ESI Payable</div><div class="val" style="color:#145214;font-size:20px;">₹${fi(r2(totEE+totER))}</div></div>
+    </div>
+    <div class="note">* Loss of Pay = (Fixed Salary ÷ 24) × days absent. ESI computed on Net Salary after LOP.</div>
+    <div class="sign">
+      <span>Prepared by: ___________________</span>
+      <span>Verified by: ___________________</span>
+      <span>Authorised by: ___________________</span>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div style={card}>
         <div style={{...sec,background:"#1a3d6b"}}>
           <span>🏛 PF &amp; ESI Register — All Departments — {MONTHS[month]} {year}</span>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={printPF} style={btn("#1a3d6b","white",true)}>🖨️ Print Register</button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={printPF} style={btn("#1a3d6b","white",true)}>🖨️ Print PF Register</button>
             <button onClick={downloadXLS} style={btn(T.saffron,T.maroonD,true)}>⬇️ PF Upload XLS</button>
+            <button onClick={printESI} style={btn("#145214","white",true)}>🖨️ Print ESI Register</button>
+            <button onClick={downloadESIXLS} style={btn("#1a6b1a","white",true)}>⬇️ ESI Upload XLS</button>
           </div>
         </div>
 
@@ -1759,11 +1923,11 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   };
   return(
     <div style={card}>
-      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",uan:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+      <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",uan:"",esino:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:ed.daily?"Daily Wage Rate (₹)*":"Monthly Rate (₹)*",k:"rate",t:"number",ph:ed.daily?"e.g. 400 per day":"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"UAN (PF Portal)",k:"uan",t:"text",ph:"12-digit UAN number"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
+          {[{l:"Full Name*",k:"name",t:"text",ph:"Employee name"},{l:ed.daily?"Daily Wage Rate (₹)*":"Monthly Rate (₹)*",k:"rate",t:"number",ph:ed.daily?"e.g. 400 per day":"e.g. 15000"},{l:"Accommodation Rent (₹)",k:"rent",t:"number",ph:"e.g. 500 or 0"},{l:"UAN (PF Portal)",k:"uan",t:"text",ph:"12-digit UAN number"},{l:"ESI Number",k:"esino",t:"text",ph:"ESI registration number"},{l:"Bank Name",k:"bankName",t:"text",ph:"Name on account"},{l:"Account No.",k:"acc",t:"text",ph:"Account number"},{l:"IFSC Code",k:"ifsc",t:"text",ph:"e.g. SBIN0001234"}].map(f=>(
             <div key={f.k}><label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>{f.l}</label><input type={f.t} value={ed[f.k]} onChange={e=>setEd(p=>({...p,[f.k]:e.target.value}))} placeholder={f.ph} style={inp()}/></div>
           ))}
           <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:16}}>
