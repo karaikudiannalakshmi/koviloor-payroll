@@ -1286,9 +1286,9 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         // Section header row
         dataRows.push([dname,...Array(9).fill(null)]);
         emps.forEach(s=>{
-          const fixed=s.emp.rate||s.baseSal;
-          const lop=s.daysWorked<24?r2((fixed/24)*(24-s.daysWorked)):0;
-          const net=r2(fixed-lop);
+          const fixed=r2(fv(s.emp.rate));
+          const net=s.emp.fixed?fixed:r2(s.baseSal);
+          const lop=r2(fixed-net);
           const basic=r2(net*0.70);
           const ee=r2(basic*0.0075);
           const er=r2(basic*0.0325);
@@ -1331,9 +1331,9 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
     const w=window.open("","_blank","width=1100,height=800");
     // Recalculate using net salary (fixed - LOP) not baseSal
     const esiCalc=allRows.map(s=>{
-      const fixed=s.emp.rate||s.baseSal;
-      const lop=s.daysWorked<24?r2((fixed/24)*(24-s.daysWorked)):0;
-      const net=r2(fixed-lop);
+      const fixed=r2(fv(s.emp.rate));
+      const net=s.emp.fixed?fixed:r2(s.baseSal);
+      const lop=r2(fixed-net);
       const basis=r2(net*0.70);
       const ee=r2(basis*0.0075);
       const er=r2(basis*0.0325);
