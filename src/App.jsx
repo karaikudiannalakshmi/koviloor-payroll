@@ -980,8 +980,14 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         if(data.length<2){showToast("File appears empty");return;}
 
-        // Detect header row and column indices
-        const hdrRow=data[0].map(h=>String(h||"").toLowerCase());
+        // Detect header row — scan first 5 rows for one containing 'name'
+        let hdrRowIdx=0;
+        for(let i=0;i<Math.min(5,data.length);i++){
+          if(data[i].some(h=>String(h||"").toLowerCase().includes("name"))){
+            hdrRowIdx=i; break;
+          }
+        }
+        const hdrRow=data[hdrRowIdx].map(h=>String(h||"").toLowerCase());
         const nameCol=hdrRow.findIndex(h=>h.includes("name"));
         const uanCol=hdrRow.findIndex(h=>h.includes("uan")||h.includes("pf"));
         const esiCol=hdrRow.findIndex(h=>h.includes("esi"));
@@ -992,7 +998,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
 
         // Build lookup from file
         const fileRows=[];
-        data.slice(1).forEach(row=>{
+        data.slice(hdrRowIdx+1).forEach(row=>{
           const name=String(row[nameCol]||"").trim();
           const uan=uanCol>=0?String(row[uanCol]||"").replace(/,/g,"").trim():"";
           const esino=esiCol>=0?String(row[esiCol]||"").replace(/,/g,"").trim():"";
