@@ -964,9 +964,81 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const [mergeResult,setMergeResult]=useState(null);
   const [uanEdits,setUanEdits]=useState({});
   const [uanImportResult,setUanImportResult]=useState(null);
+  const [acctResult,setAcctResult]=useState(null);
   const extRef=useRef();
   const uanImportRef=useRef();
   const uanForceRef=useRef();
+  const acctUploadRef=useRef();
+
+  const importAcctNumbers=(file)=>{
+    const loadXLSX=()=>{
+      const XLSX=window.XLSX;
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const wb=XLSX.read(e.target.result,{type:"array",raw:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+        if(data.length<2){showToast("File appears empty");return;}
+
+        // Detect header row and column indices
+        const hdrRow=data[0].map(h=>String(h||"").toLowerCase());
+        const nameCol=hdrRow.findIndex(h=>h.includes("name"));
+        const uanCol=hdrRow.findIndex(h=>h.includes("uan")||h.includes("pf"));
+        const esiCol=hdrRow.findIndex(h=>h.includes("esi"));
+
+        if(nameCol<0){showToast("❌ No 'Name' column found in header row");return;}
+
+        const norm=s=>String(s||"").toLowerCase().replace(/[^a-z]/g,"");
+
+        // Build lookup from file
+        const fileRows=[];
+        data.slice(1).forEach(row=>{
+          const name=String(row[nameCol]||"").trim();
+          const uan=uanCol>=0?String(row[uanCol]||"").replace(/,/g,"").trim():"";
+          const esino=esiCol>=0?String(row[esiCol]||"").replace(/,/g,"").trim():"";
+          if(name) fileRows.push({name,uan,esino,normName:norm(name)});
+        });
+
+        const details=[];
+        let saved=0,notFound=0;
+
+        const updatedEmps=emps.map(emp=>{
+          const en=norm(emp.name);
+          const enWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=5);
+          // Match by UAN first, then exact name, then word match
+          let match=null;
+          if(emp.uan) match=fileRows.find(r=>r.uan===emp.uan);
+          if(!match) match=fileRows.find(r=>r.normName===en);
+          if(!match&&enWords.length>0) match=fileRows.find(r=>enWords.every(w=>r.normName.includes(w)));
+
+          if(match){
+            const newUan=(match.uan&&/^\d{10,12}$/.test(match.uan))?match.uan:emp.uan||"";
+            const newEsi=match.esino||emp.esino||"";
+            const changed=(newUan!==emp.uan)||(newEsi!==(emp.esino||""));
+            details.push({ourName:emp.name,extName:match.name,uan:newUan||"—",esino:newEsi||"—",status:changed?"saved":"same"});
+            if(changed){saved++;return {...emp,uan:newUan,esino:newEsi};}
+            return emp;
+          } else {
+            details.push({ourName:emp.name,extName:"—",uan:"—",esino:"—",status:"notfound"});
+            notFound++;
+            return emp;
+          }
+        });
+
+        write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
+        setAcctResult({saved,notFound,details:details.filter(d=>d.status!=="same")});
+        showToast(`✅ Account numbers updated for ${saved} employees`);
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    if(window.XLSX) loadXLSX();
+    else{
+      const s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s.onload=loadXLSX;
+      document.head.appendChild(s);
+    }
+  };
 
   const importUANs=(file,forceOverwrite=false)=>{
     const loadXLSX=()=>{
@@ -1515,6 +1587,54 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
           </table>
         </div>
       </div>
+
+        {/* ── Direct PF/ESI Number Upload ── */}
+        <div style={card}>
+          <div style={{...sec,background:"#4a2800"}}>
+            <span>📋 Upload PF & ESI Account Numbers</span>
+            <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Excel with Name · UAN · ESI Number → saves both to employee master</span>
+          </div>
+          <div style={{padding:16}}>
+            <div style={{fontSize:12,color:T.muted,marginBottom:10}}>
+              Upload an Excel file with columns: <b>Name</b>, <b>UAN</b>, <b>ESI Number</b> (any column order, app detects by header name). All three are optional per row — only non-blank values are saved.
+            </div>
+            <div style={{fontSize:11,color:T.muted,background:T.saffronPale,padding:10,borderRadius:6,marginBottom:14}}>
+              <b>Expected format:</b> Row 1 = headers (Name / UAN / ESI No. or similar), Row 2+ = data. The app matches employees by name.
+            </div>
+            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+              <input ref={acctUploadRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])importAcctNumbers(e.target.files[0]);e.target.value="";}}/>
+              <button onClick={()=>acctUploadRef.current.click()} style={{...btn("#4a2800","white"),fontSize:13}}>
+                📂 Upload Account Numbers File
+              </button>
+              {acctResult&&<div style={{fontSize:12,fontWeight:700,color:acctResult.saved>0?"#14532d":"#7f1d1d"}}>
+                ✅ {acctResult.saved} employees updated · {acctResult.notFound} not matched
+              </div>}
+            </div>
+            {acctResult&&acctResult.details.length>0&&(
+              <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                <thead><tr>
+                  <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Our Employee</th>
+                  <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Matched As</th>
+                  <th style={{...thS,background:"#1a3d6b",minWidth:130}}>UAN</th>
+                  <th style={{...thS,background:"#145214",minWidth:130}}>ESI Number</th>
+                  <th style={{...thS,background:"#4a2800"}}>Status</th>
+                </tr></thead>
+                <tbody>{acctResult.details.map((d,i)=>(
+                  <tr key={i} style={{background:i%2===0?T.white:"#fdf8f0"}}>
+                    <td style={tdL}><b>{d.ourName}</b></td>
+                    <td style={{...tdL,color:T.muted,fontSize:10}}>{d.extName}</td>
+                    <td style={{...tdS,fontFamily:"monospace",color:"#1a3d6b"}}>{d.uan||"—"}</td>
+                    <td style={{...tdS,fontFamily:"monospace",color:"#145214"}}>{d.esino||"—"}</td>
+                    <td style={{...tdS,fontWeight:700,color:d.status==="saved"?"#14532d":d.status==="notfound"?"#7f1d1d":T.muted}}>
+                      {d.status==="saved"?"✅ Updated":d.status==="notfound"?"❌ Not found":"—"}
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        </div>
 
         {/* ── Import UANs from consolidated file ── */}
         <div style={card}>
