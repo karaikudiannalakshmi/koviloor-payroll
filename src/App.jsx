@@ -222,7 +222,13 @@ function Main(){
       const emi=r2(fv(ln.emi));
       // Only carry forward if there is an actual outstanding balance or a standing EMI
       if(bal>0||emi>0){
-        nlNext[e.id]={ob:bal>0?bal:0,given:"",emi:emi||""};
+        // Only carry forward if balance remains — clear EMI when loan is fully paid
+        if(bal>0){
+          nlNext[e.id]={ob:bal,given:"",emi:emi||""};
+        } else if(emi>0){
+          // Loan cleared — carry zero OB and clear EMI so it stops deducting
+          nlNext[e.id]={ob:0,given:"",emi:""};
+        }
       }
     });
 
@@ -934,8 +940,11 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
               <td style={{...tdS,padding:"5px 8px",background:rb}}>{NI(ln.ob,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),ob:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f0fae8":"#e8f5d8"}}>{NI(ln.given,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),given:ev.target.value}}}))} </td>
               <td style={{...tdS,padding:"5px 8px",background:i%2===0?"#f5eefa":"#ede0f5"}}>
-                {NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))}
-                {isCapped&&<span style={{fontSize:9,color:"#d4780a",display:"block",marginTop:2}}>↑ last EMI: ₹{fi(actualDed)}</span>}
+                {tot===0
+                  ? <span style={{color:T.muted,fontSize:12}}>—</span>
+                  : <>{NI(ln.emi,ev=>write({[`loan_${mkey}`]:{...loan,[e.id]:{...(loan[e.id]||{}),emi:ev.target.value}}}))}
+                    {isCapped&&<span style={{fontSize:9,color:"#d4780a",display:"block",marginTop:2}}>↑ last EMI: ₹{fi(actualDed)}</span>}</>
+                }
               </td>
               <td style={{...tdS,fontWeight:800,fontSize:14,color:bal>0?T.danger:bal<0?"#1a5a00":T.muted}}>
                 {bal>0?`₹${fi(bal)}`:bal<0?<span style={{color:T.success,fontSize:12}}>Cleared+₹{fi(-bal)}</span>:"—"}
@@ -1908,8 +1917,8 @@ function PayslipTab({settle,depts,activeDept,month,year}){
 // ── BANK UPLOAD ───────────────────────────────────────────────────
 function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
   const dept=depts.find(dd=>dd.id===activeDept);
-  const deptDbAcc=d[`dbAcc_${activeDept}`]||dbAcc||"";
-  const commonDbAcc=d[`dbAcc_common`]||dbAcc||"";
+  const deptDbAcc=d[`dbAcc_${activeDept}`]||"";
+  const commonDbAcc=d[`dbAcc_common`]||"";
 
   // Departments that share the common account (not marked as separate)
   const commonDepts=depts.filter(dd=>!dd.separateBank);
