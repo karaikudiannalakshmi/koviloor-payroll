@@ -30,7 +30,6 @@ const fbSet = async (val) => {
 };
 
 // ── Auth ──────────────────────────────────────────────────────────
-// Role assigned by email — add emails here to grant access
 const ROLE_MAP = {
   "koviloormadalayam@gmail.com": "operator",
   "slnaiyar@gmail.com":          "admin",
@@ -44,7 +43,7 @@ const dim=(y,m)=>new Date(y,m,0).getDate();
 const dow=(y,m,d)=>new Date(y,m-1,d).getDay();
 const DOW=["Su","Mo","Tu","We","Th","Fr","Sa"];
 const r2=n=>Math.round(n*100)/100;
-const r5=n=>Math.ceil(n/5)*5;  // round up to nearest ₹5
+const r5=n=>Math.ceil(n/5)*5;
 const fi=n=>Math.abs(Math.round(n*100)/100).toLocaleString("en-IN",{minimumFractionDigits:0,maximumFractionDigits:2});
 const fv=v=>parseFloat(v||0)||0;
 
@@ -98,12 +97,10 @@ function Main(){
 
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(""),3000);};
 
-  // Month-end export reminder
   const isMonthEnd = ()=>{ const today=new Date(); return today.getFullYear()===year && today.getMonth()+1===month && today.getDate()>=28; };
 
   const lastWrite=useRef(0);
 
-  // ── Firebase Email Auth ───────────────────────────────────────
   useEffect(()=>{
     return onAuthStateChanged(fbAuth, (firebaseUser) => {
       if (firebaseUser) {
@@ -127,18 +124,15 @@ function Main(){
     setSess(null); setRole(null);
   };
 
-  // ── LOAD on start — only after auth is ready ──────────────────
   useEffect(()=>{
-    if(!authReady || !role) return; // wait for Firebase auth
+    if(!authReady || !role) return;
     fbGet().then(val=>{
       if(val && typeof val==="object"){
         const migrated = {...val};
-        // Use the year/month stored IN Firebase (not current date)
         const y = val.year || 2026;
         const m = val.month || 3;
         const mk = `${y}_${m}`;
         let needsSave = false;
-        // Snapshot current emps into month key if not yet saved
         if(val.emps && !val[`emps_${mk}`]) { migrated[`emps_${mk}`]=val.emps; needsSave=true; }
         if(val.att  && Object.keys(val.att).length>0  && !val[`att_${mk}`]) { migrated[`att_${mk}`]=val.att;   delete migrated.att;  needsSave=true; }
         if(val.ot   && Object.keys(val.ot).length>0   && !val[`ot_${mk}`])  { migrated[`ot_${mk}`]=val.ot;    delete migrated.ot;   needsSave=true; }
@@ -153,11 +147,10 @@ function Main(){
     });
   },[authReady, role]);
 
-  // ── POLL every 2 seconds — only when authenticated ────────────
   useEffect(()=>{
     if(!authReady || !role) return;
     const t=setInterval(()=>{
-      if(Date.now()-lastWrite.current < 3000) return; // skip if we just wrote
+      if(Date.now()-lastWrite.current < 3000) return;
       fbGet().then(val=>{
         if(val && typeof val==="object") setD({...D0,...val});
       });
@@ -165,7 +158,6 @@ function Main(){
     return ()=>clearInterval(t);
   },[authReady, role]);
 
-  // ── WRITE to Firebase ─────────────────────────────────────────
   const write=(patch)=>{
     setD(prev=>{
       const next={...prev,...patch};
@@ -181,18 +173,13 @@ function Main(){
   const days=Array.from({length:nd},(_,i)=>i+1);
   const mkey=`${year}_${month}`;
 
-  // ── Snapshot current emps into month key so historical data is preserved ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{
     if(emps && emps.length>0 && !d[`emps_${mkey}`]){
       write({[`emps_${mkey}`]:emps});
     }
-  },[mkey]); // intentionally only on mkey change
+  },[mkey]);
 
-  // monthEmps: use frozen snapshot for this month if it exists.
-  // If no snapshot yet (first time opening this month), fall back to live emps.
-  // Past snapshots are protected because saveEmp only writes current mkey snapshot,
-  // and carry forward never overwrites an existing snapshot.
   const monthEmps = d[`emps_${mkey}`] || emps;
 
   const [showCF,setShowCF]=useState(false);
@@ -202,13 +189,8 @@ function Main(){
     const ny=month===12?year+1:year;
     const nmkey=`${ny}_${nm}`;
 
-    // 1. Departments — carry as-is
-    // (depts is a top-level field, already shared; no action needed unless new month key required)
-
-    // 2. Employees — snapshot current emps into next month key
-    const empsNext=emps; // carry live master
+    const empsNext=emps;
     
-    // 3. Loans — OB = closing balance, EMI carries, given reset
     const lnBalCF=e=>{
       const ln=(d[`loan_${mkey}`]||{})[e.id]||{};
       const total=r2(fv(ln.ob)+fv(ln.given));
@@ -220,19 +202,15 @@ function Main(){
       const ln=loanCurr[e.id]||{};
       const bal=lnBalCF(e);
       const emi=r2(fv(ln.emi));
-      // Only carry forward if there is an actual outstanding balance or a standing EMI
       if(bal>0||emi>0){
-        // Only carry forward if balance remains — clear EMI when loan is fully paid
         if(bal>0){
           nlNext[e.id]={ob:bal,given:"",emi:emi||""};
         } else if(emi>0){
-          // Loan cleared — carry zero OB and clear EMI so it stops deducting
           nlNext[e.id]={ob:0,given:"",emi:""};
         }
       }
     });
 
-    // 4. Advances — carry unrecovered balance as B/F
     const advCurr=d[`adv_${mkey}`]||{};
     const advNext={};
     monthEmps.forEach(e=>{
@@ -243,7 +221,6 @@ function Main(){
       if(bal>0) advNext[e.id]=[{date:`${ny}-${String(nm).padStart(2,"0")}-01`,amount:bal,recovered:0,note:"B/F"}];
     });
 
-    // 5. PF & ESI — carry as-is
     const pfCurr=d[`pf_${mkey}`]||{};
     const esiCurr=d[`esi_${mkey}`]||{};
     const pfNext={};const esiNext={};
@@ -252,7 +229,6 @@ function Main(){
       if(esiCurr[e.id]) esiNext[e.id]=esiCurr[e.id];
     });
 
-    // Only write emps snapshot for next month if it doesn't already exist
     const cfPayload={
       [`loan_${nmkey}`]:nlNext,
       [`adv_${nmkey}`]:advNext,
@@ -279,8 +255,8 @@ function Main(){
 
   const settle=useMemo(()=>monthEmps.map(emp=>{
     const isFixed=!!emp.fixed;
-    const isDaily=!!emp.daily;                          // daily wage: rate = per-day amount
-    const dr=isDaily?emp.rate:emp.rate/24;              // daily rate
+    const isDaily=!!emp.daily;
+    const dr=isDaily?emp.rate:emp.rate/24;
     let dw2=0;
     days.forEach(day=>{const v=ga(emp.id,day);if(v!==null&&v!==undefined)dw2+=fv(v);});
     const otH=days.reduce((s,day)=>{const h=fv(got(emp.id,day));return s+(isNaN(h)?0:h);},0);
@@ -293,7 +269,7 @@ function Main(){
     const lnOB=r2(fv(ln.ob)),lnGiven=r2(fv(ln.given));
     const lnEmi=r2(fv(ln.emi));
     const lnTotal=r2(lnOB+lnGiven);
-    const lnDed=r2(Math.min(lnEmi,lnTotal));   // auto: EMI capped at outstanding balance
+    const lnDed=r2(Math.min(lnEmi,lnTotal));
     const lnBal=r2(lnTotal-lnDed);
     const pfAmt  = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.12)   : r2(fv(pf[emp.id]));
     const esiAmt = emp.pfEsi ? r2(r2(baseSal * 0.70) * 0.0075) : r2(fv(esi[emp.id]));
@@ -380,7 +356,7 @@ function Main(){
 
       {/* Content */}
       <div style={{padding:16,maxWidth:1600,margin:"0 auto"}}>
-        {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,write,isOperator:role==="operator"}}/>}
+        {safeTab==="att"    &&<AttTab {...{emps:monthEmps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att:mattObj,mkey,write,isOperator:role==="operator"}}/>}
         {safeTab==="salary" &&role==="admin"&&<SalaryTab {...{settle,depts,activeDept,month,year}}/>}
         {safeTab==="ded"    &&role==="admin"&&<DedTab {...{emps:monthEmps,depts,activeDept,adv,loan,month,year,showToast,write,d}}/>}
         {safeTab==="pfesi"  &&role==="admin"&&<PFESITab {...{settle,depts,month,year,pf,esi,write,d,mkey,emps:monthEmps,showToast}}/>}
@@ -492,13 +468,14 @@ function LoginModal({onLogin}){
 }
 
 // ── ATTENDANCE ────────────────────────────────────────────────────
-function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,write,isOperator}){
+// att and mkey are now passed as explicit props so markAll/clrAll work correctly
+function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,mkey,write,isOperator}){
   const [mode,setMode]=useState("att");
-  // Operators only see attendance-based and daily wage employees (not fixed salary)
   const de=emps.filter(e=>e.deptId===activeDept && (isOperator ? !e.fixed : true));
   const dept=depts.find(d=>d.id===activeDept);
-  const markAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
-  const clrAll=eid=>{const u={...mattObj};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
+  // markAll / clrAll now use 'att' prop (was: mattObj — undefined in this scope)
+  const markAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
+  const clrAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
   return(
     <div style={card}>
       <div style={sec}>
@@ -510,7 +487,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,wr
       </div>
       <div style={{padding:"8px 14px",background:T.saffronPale,borderBottom:`1px solid ${T.border}`,fontSize:11,color:T.muted,fontFamily:"sans-serif"}}>
         {mode==="att"?"💡 Click = ✓ Present · again = ½ Half Day · again = ✗ Absent · again = Clear.":"💡 Enter OT hours. Paid at Daily Rate ÷ 8 per hour."}
-      </div>      {de.length===0?<div style={{padding:32,textAlign:"center",color:T.muted}}>No employees in this department.</div>:(
+      </div>
+      {de.length===0?<div style={{padding:32,textAlign:"center",color:T.muted}}>No employees in this department.</div>:(
         <div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",minWidth:"100%"}}>
             <thead><tr>
@@ -643,7 +621,6 @@ function SalaryTab({settle,depts,activeDept,month,year}){
       <div><h2>Deductions Report — ${dept?.name}</h2><div class="sub">${MONTHS[month]} ${year} &nbsp;|&nbsp; ${rows.length} staff</div></div>
       <button onclick="window.print()" style="background:#d4780a;color:white;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-weight:700;">🖨️ Print</button>
     </div>
-
     <h3>🏛 Section 1 — PF &amp; ESI Deductions</h3>
     <table>
       <thead class="pf-hdr"><tr>
@@ -670,7 +647,6 @@ function SalaryTab({settle,depts,activeDept,month,year}){
         <td>₹${fi(rows.reduce((s,r)=>s+r.pfAmt+r.esiAmt,0))}</td>
       </tr></tfoot>
     </table>
-
     <h3>💳 Section 2 — Loan, Advance &amp; Rent Deductions</h3>
     <table>
       <thead class="oth-hdr"><tr>
@@ -697,7 +673,6 @@ function SalaryTab({settle,depts,activeDept,month,year}){
         <td>₹${fi(rows.reduce((s,r)=>s+r.lnDed+r.advAmt+r.rentAmt,0))}</td>
       </tr></tfoot>
     </table>
-
     <div class="sign">
       <span>Prepared by: ___________________</span>
       <span>Verified by: ___________________</span>
@@ -771,7 +746,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
     return r2(total-Math.min(fv(ln.emi),total));
   };
 
-  // Advance helpers
   const getAdvEntries=eid=>Array.isArray(adv[eid])?adv[eid]:[];
   const advTotal=eid=>getAdvEntries(eid).reduce((s,x)=>s+fv(x.amount),0);
   const advRecovered=eid=>getAdvEntries(eid).reduce((s,x)=>s+fv(x.recovered),0);
@@ -796,8 +770,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
   );
   return(
     <div>
-
-      {/* Advance Ledger modal */}
       {advEmpId&&(()=>{
         const emp=de.find(e=>e.id===advEmpId);
         const entries=getAdvEntries(advEmpId);
@@ -808,7 +780,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
                 <div><div style={{fontWeight:700,fontSize:15}}>💳 Advance Ledger</div><div style={{fontSize:11,opacity:0.7,marginTop:2}}>{emp?.name} · {dept?.name} · {MONTHS[month]} {year}</div></div>
                 <button onClick={()=>setAdvEmpId(null)} style={{background:"none",border:"none",color:"white",fontSize:20,cursor:"pointer"}}>✕</button>
               </div>
-              {/* Summary */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:0,borderBottom:`1px solid ${T.border}`}}>
                 {[{l:"Total Advance",v:advTotal(advEmpId),c:T.danger},{l:"Recovered",v:advRecovered(advEmpId),c:T.success},{l:"Balance",v:advBalance(advEmpId),c:advBalance(advEmpId)>0?T.danger:T.success}].map(x=>(
                   <div key={x.l} style={{padding:"12px 16px",textAlign:"center",borderRight:`1px solid ${T.border}`}}>
@@ -817,7 +788,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
                   </div>
                 ))}
               </div>
-              {/* Add entry */}
               <div style={{padding:14,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
                 <div style={{fontSize:11,fontWeight:700,color:T.maroon,marginBottom:8}}>+ Add Advance Entry</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
@@ -833,7 +803,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
                 </div>
                 <button onClick={()=>addAdvEntry(advEmpId)} style={{...btn(T.maroon),marginTop:10}}>+ Add Entry</button>
               </div>
-              {/* Entries list */}
               {entries.length===0?<div style={{padding:24,textAlign:"center",color:T.muted}}>No advance entries this month.</div>:(
                 <table style={{borderCollapse:"collapse",width:"100%"}}>
                   <thead><tr>
@@ -879,7 +848,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
         <div style={{fontSize:12,color:T.muted,fontStyle:"italic"}}>Use 🔄 Carry Fwd in the header to carry forward all data to next month</div>
       </div>
 
-      {/* Advance Ledger Summary */}
       <div style={card}>
         <div style={{...sec,background:"#6b4a00"}}>
           <span>💳 Advance Ledger</span>
@@ -916,7 +884,6 @@ function DedTab({emps,depts,activeDept,adv,loan,month,year,showToast,write,d}){
         </table>
       </div>
 
-      {/* Loan Ledger */}
       <div style={card}>
         <div style={{...sec,background:"#3d2200"}}>
           <span>🏦 Loan Ledger</span>
@@ -988,24 +955,16 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const ws=wb.Sheets[wb.SheetNames[0]];
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         if(data.length<2){showToast("File appears empty");return;}
-
-        // Detect header row — scan first 5 rows for one containing 'name'
         let hdrRowIdx=0;
         for(let i=0;i<Math.min(5,data.length);i++){
-          if(data[i].some(h=>String(h||"").toLowerCase().includes("name"))){
-            hdrRowIdx=i; break;
-          }
+          if(data[i].some(h=>String(h||"").toLowerCase().includes("name"))){hdrRowIdx=i;break;}
         }
         const hdrRow=data[hdrRowIdx].map(h=>String(h||"").toLowerCase());
         const nameCol=hdrRow.findIndex(h=>h.includes("name"));
         const uanCol=hdrRow.findIndex(h=>h.includes("uan")||h.includes("pf"));
         const esiCol=hdrRow.findIndex(h=>h.includes("esi"));
-
         if(nameCol<0){showToast("❌ No 'Name' column found in header row");return;}
-
         const norm=s=>String(s||"").toLowerCase().replace(/[^a-z]/g,"");
-
-        // Build lookup from file
         const fileRows=[];
         data.slice(hdrRowIdx+1).forEach(row=>{
           const name=String(row[nameCol]||"").trim();
@@ -1013,19 +972,15 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
           const esino=esiCol>=0?String(row[esiCol]||"").replace(/,/g,"").trim():"";
           if(name) fileRows.push({name,uan,esino,normName:norm(name)});
         });
-
         const details=[];
         let saved=0,notFound=0;
-
         const updatedEmps=emps.map(emp=>{
           const en=norm(emp.name);
           const enWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=5);
-          // Match by UAN first, then exact name, then word match
           let match=null;
           if(emp.uan) match=fileRows.find(r=>r.uan===emp.uan);
           if(!match) match=fileRows.find(r=>r.normName===en);
           if(!match&&enWords.length>0) match=fileRows.find(r=>enWords.every(w=>r.normName.includes(w)));
-
           if(match){
             const newUan=(match.uan&&/^\d{10,12}$/.test(match.uan))?match.uan:emp.uan||"";
             const newEsi=match.esino||emp.esino||"";
@@ -1039,7 +994,6 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             return emp;
           }
         });
-
         write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
         setAcctResult({saved,notFound,details:details.filter(d=>d.status!=="same")});
         showToast(`✅ Account numbers updated for ${saved} employees`);
@@ -1047,12 +1001,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       reader.readAsArrayBuffer(file);
     };
     if(window.XLSX) loadXLSX();
-    else{
-      const s=document.createElement("script");
-      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      s.onload=loadXLSX;
-      document.head.appendChild(s);
-    }
+    else{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=loadXLSX;document.head.appendChild(s);}
   };
 
   const importUANs=(file,forceOverwrite=false)=>{
@@ -1064,46 +1013,27 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const ws=wb.Sheets[wb.SheetNames[0]];
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         const norm=s=>String(s||"").toLowerCase().replace(/[^a-z]/g,"");
-        const byUan={};
-        const byName={};
+        const byUan={};const byName={};
         data.forEach(row=>{
           const uan=String(row[0]||"").replace(/,/g,"").trim();
           const name=String(row[1]||"").trim();
-          if(uan&&name&&/^\d{10,12}$/.test(uan)){
-            byUan[uan]={uan,name};
-            byName[norm(name)]={uan,name};
-          }
+          if(uan&&name&&/^\d{10,12}$/.test(uan)){byUan[uan]={uan,name};byName[norm(name)]={uan,name};}
         });
-        const details=[];
-        let saved=0,skipped=0,notFound=0;
+        const details=[];let saved=0,skipped=0,notFound=0;
         const updatedEmps=emps.map(emp=>{
           if(!emp.pfEsi) return emp;
           let match=null;
-          // Step 1: match by existing UAN only if NOT force overwrite
           if(!forceOverwrite&&emp.uan&&byUan[emp.uan]) match=byUan[emp.uan];
-          // Step 2: exact normalised name
           if(!match){const en=norm(emp.name);if(byName[en])match=byName[en];}
-          // Step 3: all words of 5+ chars must match
           if(!match){
             const ourWords=emp.name.toLowerCase().split(/\s+/).filter(w=>w.length>=5);
-            if(ourWords.length>0){
-              const key=Object.keys(byName).find(k=>ourWords.every(w=>k.includes(w)));
-              if(key)match=byName[key];
-            }
+            if(ourWords.length>0){const key=Object.keys(byName).find(k=>ourWords.every(w=>k.includes(w)));if(key)match=byName[key];}
           }
           if(match){
             const sameUan=emp.uan&&emp.uan===match.uan;
-            if(sameUan&&!forceOverwrite){
-              details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"existing"});
-              skipped++; return emp;
-            } else {
-              details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"saved"});
-              saved++; return {...emp,uan:match.uan};
-            }
-          } else {
-            details.push({ourName:emp.name,extName:"—",uan:"—",status:"notfound"});
-            notFound++; return emp;
-          }
+            if(sameUan&&!forceOverwrite){details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"existing"});skipped++;return emp;}
+            else{details.push({ourName:emp.name,extName:match.name,uan:match.uan,status:"saved"});saved++;return {...emp,uan:match.uan};}
+          } else {details.push({ourName:emp.name,extName:"—",uan:"—",status:"notfound"});notFound++;return emp;}
         });
         write({emps:updatedEmps,[`emps_${mkey}`]:updatedEmps});
         setUanImportResult({saved,skipped,notFound,details,forced:forceOverwrite});
@@ -1120,7 +1050,6 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const totPF=pfRows.reduce((s,r)=>s+r.pfAmt,0);
   const totESI=pfRows.reduce((s,r)=>s+r.esiAmt,0);
 
-  // Normalise name for fuzzy matching
   const norm=s=>s?s.toLowerCase().replace(/[^a-z]/g,""):"";
 
   const loadExtFile=(file)=>{
@@ -1131,13 +1060,10 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         const rawWb=XLSX.read(e.target.result,{type:"array",cellFormula:true,bookVBA:true});
         const sheetName=rawWb.SheetNames[0];
         const ws=rawWb.Sheets[sheetName];
-        // Use dense array output to detect blanks; raw:true gives stored value not formula result
         const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
         const blankRows=[];
         data.forEach((row,idx)=>{
-          const uan=row[0];
-          const name=row[1];
-          const gross=row[2];
+          const uan=row[0];const name=row[1];const gross=row[2];
           if(uan&&name&&(gross===null||gross===0||gross===""||gross===undefined)){
             blankRows.push({rowIdx:idx,uan:String(uan),name:String(name).trim()});
           }
@@ -1148,71 +1074,40 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       reader.readAsArrayBuffer(file);
     };
     if(window.XLSX){loadXLSX();}
-    else{
-      const s=document.createElement("script");
-      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      s.onload=loadXLSX;
-      document.head.appendChild(s);
-    }
+    else{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=loadXLSX;document.head.appendChild(s);}
   };
 
   const doMerge=()=>{
     if(!extFile)return;
     const matched=[],unmatched=[],notInExt=[];
-
-    // Build our payroll lookup by normalised name
     const ourMap={};
     allRows.forEach(s=>{ourMap[norm(s.emp.name)]=s;});
-
     const mergedData=extFile.data.map(r=>[...r]);
-
     extFile.blankRows.forEach(br=>{
       const bn=norm(br.name);
       const bnWords=br.name.trim().toLowerCase().split(/\s+/).filter(w=>w.length>2);
-      // Try exact match first, then word-level match (at least one significant word must match)
       let our=ourMap[bn];
       if(!our){
         const keys=Object.keys(ourMap);
-        const key=keys.find(k=>{
-          // At least one word of 4+ chars from their name must appear in our name
-          return bnWords.some(w=>w.length>=4&&k.includes(w));
-        });
+        const key=keys.find(k=>bnWords.some(w=>w.length>=4&&k.includes(w)));
         if(key)our=ourMap[key];
       }
       if(our){
         const basis=Math.min(Math.round(r2(our.baseSal*0.70)),15000);
-        const epf=Math.round(basis*0.12);
-        const eps=Math.round(basis*0.0833);
-        const diff=epf-eps;
+        const epf=Math.round(basis*0.12);const eps=Math.round(basis*0.0833);const diff=epf-eps;
         const ncp=our.daysWorked===0?26:0;
-        mergedData[br.rowIdx]=[
-          br.uan, br.name,
-          Math.round(our.baseSal), basis, basis, basis,
-          epf, eps, diff, ncp, 0
-        ];
+        mergedData[br.rowIdx]=[br.uan,br.name,Math.round(our.baseSal),basis,basis,basis,epf,eps,diff,ncp,0];
         matched.push({rowIdx:br.rowIdx,extName:br.name,ourName:our.emp.name,gross:Math.round(our.baseSal),pf:epf,empId:our.emp.id,extUan:br.uan,existingUan:our.emp.uan||""});
-      } else {
-        unmatched.push(br.name);
-      }
+      } else {unmatched.push(br.name);}
     });
-
-    // Our employees not found anywhere in ext file (blank OR filled rows)
-    const allExtNames=extFile.data
-      .filter(row=>row[0]&&row[1])
-      .map(row=>norm(String(row[1])));
-
+    const allExtNames=extFile.data.filter(row=>row[0]&&row[1]).map(row=>norm(String(row[1])));
     allRows.forEach(s=>{
       const sn=norm(s.emp.name);
       const snWords=s.emp.name.trim().toLowerCase().split(/\s+/).filter(w=>w.length>2);
-      const found=allExtNames.some(en=>
-        en===sn ||
-        snWords.some(w=>w.length>=4&&en.includes(w))
-      );
+      const found=allExtNames.some(en=>en===sn||snWords.some(w=>w.length>=4&&en.includes(w)));
       if(!found) notInExt.push(s.emp.name);
     });
-
     setMergeResult({matched,unmatched,notInExt,mergedData});
-    // Pre-fill uanEdits with UAN from external file for matched employees
     const initUans={};
     matched.forEach(m=>{if(!m.existingUan&&m.extUan)initUans[m.empId]=m.extUan;});
     setUanEdits(initUans);
@@ -1220,17 +1115,10 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
 
   const downloadMerged=()=>{
     if(!mergeResult||!extFile?.rawWb)return;
-    const XLSX=window.XLSX;
-    const wb=extFile.rawWb;
-    const ws=wb.Sheets[extFile.sheetName];
-    // Only write gross (col C) for matched rows — all other cells untouched
-    // This preserves all existing formulas, formats and data
-    mergeResult.matched.forEach(m=>{
-      const cellAddr=XLSX.utils.encode_cell({r:m.rowIdx, c:2}); // col C = index 2
-      ws[cellAddr]={t:"n", v:m.gross}; // number cell
-    });
+    const XLSX=window.XLSX;const wb=extFile.rawWb;const ws=wb.Sheets[extFile.sheetName];
+    mergeResult.matched.forEach(m=>{const cellAddr=XLSX.utils.encode_cell({r:m.rowIdx,c:2});ws[cellAddr]={t:"n",v:m.gross};});
     const fname=extFile.name.replace(/\.xlsx?$/i,`_Consolidated_${MONTHS[month]}_${year}.xlsx`);
-    XLSX.writeFile(wb, fname);
+    XLSX.writeFile(wb,fname);
   };
 
   const saveUANs=(emps)=>{
@@ -1264,51 +1152,31 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
     </div>
     <table>
       <thead><tr>
-        <th class="left">#</th>
-        <th class="left">Employee</th>
-        <th class="left">Dept</th>
-        <th>Gross Earned</th>
-        <th>PF Basis (70%)</th>
-        <th>PF @ 12%</th>
-        <th>Ee Share (8.33%)</th>
-        <th>Er Share (3.67%)</th>
-        <th>ESI @ 0.75%</th>
-        <th>Total PF+ESI</th>
+        <th class="left">#</th><th class="left">Employee</th><th class="left">Dept</th>
+        <th>Gross Earned</th><th>PF Basis (70%)</th><th>PF @ 12%</th>
+        <th>Ee Share (8.33%)</th><th>Er Share (3.67%)</th><th>ESI @ 0.75%</th><th>Total PF+ESI</th>
       </tr></thead>
       <tbody>${allRows.map((s,i)=>{
-        const basis=r2(s.baseSal*0.70);
-        const ee=r2(basis*0.0833);
-        const er=r2(s.pfAmt-ee);
+        const basis=r2(s.baseSal*0.70);const ee=r2(basis*0.0833);const er=r2(s.pfAmt-ee);
         const dept=depts.find(d=>d.id===s.emp.deptId);
         return`<tr>
-          <td class="left">${i+1}</td>
-          <td class="left"><b>${s.emp.name}</b></td>
-          <td class="left dept">${dept?.name||""}</td>
+          <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td><td class="left dept">${dept?.name||""}</td>
           <td>${s.baseSal>0?`₹${fi(s.baseSal)}`:'<span style="color:#bbb">Absent</span>'}</td>
-          <td>${basis>0?`₹${fi(basis)}`:"—"}</td>
-          <td>${s.pfAmt>0?`₹${fi(s.pfAmt)}`:"—"}</td>
-          <td>${ee>0?`₹${fi(ee)}`:"—"}</td>
-          <td>${er>0?`₹${fi(er)}`:"—"}</td>
+          <td>${basis>0?`₹${fi(basis)}`:"—"}</td><td>${s.pfAmt>0?`₹${fi(s.pfAmt)}`:"—"}</td>
+          <td>${ee>0?`₹${fi(ee)}`:"—"}</td><td>${er>0?`₹${fi(er)}`:"—"}</td>
           <td>${s.esiAmt>0?`₹${fi(s.esiAmt)}`:"—"}</td>
           <td>${(s.pfAmt+s.esiAmt)>0?`<b>₹${fi(s.pfAmt+s.esiAmt)}</b>`:"—"}</td>
         </tr>`;}).join("")}
       </tbody>
       <tfoot><tr>
         <td colspan="3" class="left">TOTAL — ${pfRows.length} staff</td>
-        <td>₹${fi(totGross)}</td>
-        <td>₹${fi(totBasis)}</td>
-        <td>₹${fi(totPF)}</td>
+        <td>₹${fi(totGross)}</td><td>₹${fi(totBasis)}</td><td>₹${fi(totPF)}</td>
         <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r2(r.baseSal*0.70)*0.0833),0))}</td>
         <td>₹${fi(pfRows.reduce((s,r)=>s+r2(r.pfAmt-r2(r2(r.baseSal*0.70)*0.0833)),0))}</td>
-        <td>₹${fi(totESI)}</td>
-        <td>₹${fi(totPF+totESI)}</td>
+        <td>₹${fi(totESI)}</td><td>₹${fi(totPF+totESI)}</td>
       </tr></tfoot>
     </table>
-    <div class="sign">
-      <span>Prepared by: ___________________</span>
-      <span>Verified by: ___________________</span>
-      <span>Authorised by: ___________________</span>
-    </div>
+    <div class="sign"><span>Prepared by: ___________________</span><span>Verified by: ___________________</span><span>Authorised by: ___________________</span></div>
     </body></html>`);
     w.document.close();
   };
@@ -1318,33 +1186,15 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
     script.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     script.onload=()=>{
       const XLSX=window.XLSX;
-      // Columns matching PF portal upload format
       const header=["UAN","Member Name","Gross Wages","EPF Wages","EPS Wages","EDLI Wages","EPF Contribution due","EPS Contribution due","EPF EPS Diff","NCP Days","Refund of Advances"];
       const dataRows=allRows.map(s=>{
         const basis=Math.round(Math.min(r2(s.baseSal*0.70),15000));
-        const epsBasis=Math.min(basis,15000);
-        const epf=Math.round(basis*0.12);
-        const eps=Math.round(epsBasis*0.0833);
-        const diff=epf-eps;
-        const ncpDays=s.daysWorked===0?26:0;
-        return [
-          s.emp.uan||"",
-          s.emp.name,
-          Math.round(s.baseSal),
-          basis,
-          epsBasis,
-          basis,
-          epf,
-          eps,
-          diff,
-          ncpDays,
-          0
-        ];
+        const epsBasis=Math.min(basis,15000);const epf=Math.round(basis*0.12);const eps=Math.round(epsBasis*0.0833);
+        return [s.emp.uan||"",s.emp.name,Math.round(s.baseSal),basis,epsBasis,basis,epf,eps,epf-eps,s.daysWorked===0?26:0,0];
       });
       const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
       ws["!cols"]=[{wch:15},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12},{wch:18},{wch:18},{wch:14},{wch:10},{wch:18}];
-      const wb2=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb2,ws,"PF Upload");
+      const wb2=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb2,ws,"PF Upload");
       XLSX.writeFile(wb2,`PF_Upload_${MONTHS[month]}_${year}.xlsx`);
     };
     document.head.appendChild(script);
@@ -1353,85 +1203,45 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
   const downloadESIXLS=()=>{
     const loadXLSX=()=>{
       const XLSX=window.XLSX;
-      // Build rows matching Arts College ESI template format exactly:
-      // S.No | Name | Designation | ESI Number | Fixed Salary | Loss of Pay | Net Salary | Basic 70% | ESI 0.75% | ESI 3.25%
       const title=[`ESI ${MONTHS[month].toUpperCase()}-${year}`,...Array(9).fill(null)];
       const header=["S.No","Name","Designation","ESI NUMBER","Fixed Salary","Loss of Pay","Net Salary","Basic 70%","ESI 0.75%","ESI 3.25%"];
-      const dataRows=[];
-      let sno=1;
-      let totFixed=0,totLop=0,totNet=0,totBasic=0,totEE=0,totER=0;
-
-      // Group by department
+      const dataRows=[];let sno=1,totFixed=0,totLop=0,totNet=0,totBasic=0,totEE=0,totER=0;
       const deptGroups={};
-      allRows.forEach(s=>{
-        const dname=depts.find(d=>d.id===s.emp.deptId)?.name||"Other";
-        if(!deptGroups[dname]) deptGroups[dname]=[];
-        deptGroups[dname].push(s);
-      });
-
+      allRows.forEach(s=>{const dname=depts.find(d=>d.id===s.emp.deptId)?.name||"Other";if(!deptGroups[dname])deptGroups[dname]=[];deptGroups[dname].push(s);});
       Object.entries(deptGroups).forEach(([dname,emps])=>{
-        // Section header row
         dataRows.push([dname,...Array(9).fill(null)]);
         emps.forEach(s=>{
-          const fixed=r2(fv(s.emp.rate));
-          const net=s.emp.fixed?fixed:r2(s.baseSal);
-          const lop=r2(fixed-net);
-          const basic=r2(net*0.70);
-          const ee=r2(basic*0.0075);
-          const er=r2(basic*0.0325);
+          const fixed=r2(fv(s.emp.rate));const net=s.emp.fixed?fixed:r2(s.baseSal);const lop=r2(fixed-net);
+          const basic=r2(net*0.70);const ee=r2(basic*0.0075);const er=r2(basic*0.0325);
           dataRows.push([sno,s.emp.name,"",s.emp.esino||"",fixed,lop||null,net,basic,ee,er]);
-          totFixed+=fixed; totLop+=lop; totNet+=net;
-          totBasic+=basic; totEE+=ee; totER+=er;
-          sno++;
+          totFixed+=fixed;totLop+=lop;totNet+=net;totBasic+=basic;totEE+=ee;totER+=er;sno++;
         });
       });
-
-      // Totals row
       dataRows.push(["TOTAL",null,null,null,r2(totFixed),r2(totLop),r2(totNet),r2(totBasic),r2(totEE),r2(totER)]);
-      // Blank rows
-      dataRows.push(Array(10).fill(null));
-      dataRows.push(Array(10).fill(null));
-      // Summary block matching template
+      dataRows.push(Array(10).fill(null));dataRows.push(Array(10).fill(null));
       dataRows.push([`Employees Contribution 0.75%   =`,null,null,`RS. ${Math.round(totEE)}`,...Array(6).fill(null)]);
       dataRows.push(Array(10).fill(null));
       dataRows.push([`Employers Contribution: 3.25%  =`,null,null,`RS. ${Math.round(totER)}`,...Array(6).fill(null)]);
       dataRows.push(Array(10).fill(null));
       dataRows.push([`Total ESI Amt                  =`,null,null,`RS. ${Math.round(totEE+totER)}`,...Array(6).fill(null)]);
-
       const ws=XLSX.utils.aoa_to_sheet([title,header,...dataRows]);
-      // Column widths matching template
       ws["!cols"]=[{wch:6},{wch:32},{wch:18},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12}];
-      const wb2=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb2,ws,`ESI-${MONTHS[month].substr(0,3)}'${String(year).substr(2)}`);
+      const wb2=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb2,ws,`ESI-${MONTHS[month].substr(0,3)}'${String(year).substr(2)}`);
       XLSX.writeFile(wb2,`ESI_Upload_${MONTHS[month]}_${year}.xlsx`);
     };
     if(window.XLSX) loadXLSX();
-    else{
-      const s=document.createElement("script");
-      s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-      s.onload=loadXLSX;
-      document.head.appendChild(s);
-    }
+    else{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=loadXLSX;document.head.appendChild(s);}
   };
 
   const printESI=()=>{
     const w=window.open("","_blank","width=1100,height=800");
-    // Recalculate using net salary (fixed - LOP) not baseSal
     const esiCalc=allRows.map(s=>{
-      const fixed=r2(fv(s.emp.rate));
-      const net=s.emp.fixed?fixed:r2(s.baseSal);
-      const lop=r2(fixed-net);
-      const basis=r2(net*0.70);
-      const ee=r2(basis*0.0075);
-      const er=r2(basis*0.0325);
+      const fixed=r2(fv(s.emp.rate));const net=s.emp.fixed?fixed:r2(s.baseSal);const lop=r2(fixed-net);
+      const basis=r2(net*0.70);const ee=r2(basis*0.0075);const er=r2(basis*0.0325);
       return {...s,fixed,lop,net,basis,ee,er};
     });
-    const totFixed=esiCalc.reduce((s,r)=>s+r.fixed,0);
-    const totLop=esiCalc.reduce((s,r)=>s+r.lop,0);
-    const totNet=esiCalc.reduce((s,r)=>s+r.net,0);
-    const totBasis=esiCalc.reduce((s,r)=>s+r.basis,0);
-    const totEE=esiCalc.reduce((s,r)=>s+r.ee,0);
-    const totER=esiCalc.reduce((s,r)=>s+r.er,0);
+    const totFixed=esiCalc.reduce((s,r)=>s+r.fixed,0),totLop=esiCalc.reduce((s,r)=>s+r.lop,0),totNet=esiCalc.reduce((s,r)=>s+r.net,0);
+    const totBasis=esiCalc.reduce((s,r)=>s+r.basis,0),totEE=esiCalc.reduce((s,r)=>s+r.ee,0),totER=esiCalc.reduce((s,r)=>s+r.er,0);
     w.document.write(`<!DOCTYPE html><html><head><title>ESI Register</title><style>
       body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:11px;}
       h2{margin:0;font-size:15px;}
@@ -1441,8 +1251,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       th{background:#145214;color:white;padding:6px 7px;text-align:center;font-size:10px;white-space:nowrap;}
       th.left{text-align:left;}
       td{padding:5px 7px;border-bottom:1px solid #eee;text-align:right;font-size:11px;}
-      td.left{text-align:left;}
-      td.dept{font-size:9px;color:#888;}
+      td.left{text-align:left;} td.dept{font-size:9px;color:#888;}
       tr:nth-child(even) td{background:#f0fff0;}
       tfoot td{background:#145214;color:white;font-weight:800;padding:7px;}
       .summary{margin-top:18px;background:#f0fff0;border:1px solid #86efac;border-radius:6px;padding:14px 20px;display:flex;gap:40px;}
@@ -1458,29 +1267,18 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
     </div>
     <table>
       <thead><tr>
-        <th class="left">#</th>
-        <th class="left">Employee</th>
-        <th class="left">Dept</th>
-        <th class="left">ESI No.</th>
-        <th>Fixed Salary</th>
-        <th>Loss of Pay</th>
-        <th>Net Salary</th>
-        <th>Basic (70%)</th>
-        <th>EE @ 0.75%</th>
-        <th>ER @ 3.25%</th>
-        <th>Total ESI</th>
+        <th class="left">#</th><th class="left">Employee</th><th class="left">Dept</th><th class="left">ESI No.</th>
+        <th>Fixed Salary</th><th>Loss of Pay</th><th>Net Salary</th><th>Basic (70%)</th><th>EE @ 0.75%</th><th>ER @ 3.25%</th><th>Total ESI</th>
       </tr></thead>
       <tbody>${esiCalc.map((s,i)=>{
         const dept=depts.find(d=>d.id===s.emp.deptId);
         return`<tr>
-          <td class="left">${i+1}</td>
-          <td class="left"><b>${s.emp.name}</b></td>
+          <td class="left">${i+1}</td><td class="left"><b>${s.emp.name}</b></td>
           <td class="left dept">${dept?.name||""}</td>
           <td class="left" style="font-family:monospace;font-size:10px;">${s.emp.esino||'<span style="color:#bbb">—</span>'}</td>
           <td>₹${fi(s.fixed)}</td>
           <td style="color:${s.lop>0?"#c00":"#bbb"}">${s.lop>0?`₹${fi(s.lop)}`:"—"}</td>
-          <td>₹${fi(s.net)}</td>
-          <td>${s.basis>0?`₹${fi(s.basis)}`:"—"}</td>
+          <td>₹${fi(s.net)}</td><td>${s.basis>0?`₹${fi(s.basis)}`:"—"}</td>
           <td style="color:#145214;font-weight:700;">${s.ee>0?`₹${fi(s.ee)}`:"—"}</td>
           <td style="color:#1a5a8b;font-weight:700;">${s.er>0?`₹${fi(s.er)}`:"—"}</td>
           <td><b>${(s.ee+s.er)>0?`₹${fi(r2(s.ee+s.er))}`:"—"}</b></td>
@@ -1488,13 +1286,8 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       </tbody>
       <tfoot><tr>
         <td colspan="4" class="left">TOTAL — ${allRows.length} staff</td>
-        <td>₹${fi(r2(totFixed))}</td>
-        <td>₹${fi(r2(totLop))}</td>
-        <td>₹${fi(r2(totNet))}</td>
-        <td>₹${fi(r2(totBasis))}</td>
-        <td>₹${fi(r2(totEE))}</td>
-        <td>₹${fi(r2(totER))}</td>
-        <td>₹${fi(r2(totEE+totER))}</td>
+        <td>₹${fi(r2(totFixed))}</td><td>₹${fi(r2(totLop))}</td><td>₹${fi(r2(totNet))}</td>
+        <td>₹${fi(r2(totBasis))}</td><td>₹${fi(r2(totEE))}</td><td>₹${fi(r2(totER))}</td><td>₹${fi(r2(totEE+totER))}</td>
       </tr></tfoot>
     </table>
     <div class="summary">
@@ -1503,11 +1296,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
       <div class="sbox"><div class="lbl">Total ESI Payable</div><div class="val" style="color:#145214;font-size:20px;">₹${fi(r2(totEE+totER))}</div></div>
     </div>
     <div class="note">* Loss of Pay = (Fixed Salary ÷ 24) × days absent. ESI computed on Net Salary after LOP.</div>
-    <div class="sign">
-      <span>Prepared by: ___________________</span>
-      <span>Verified by: ___________________</span>
-      <span>Authorised by: ___________________</span>
-    </div>
+    <div class="sign"><span>Prepared by: ___________________</span><span>Verified by: ___________________</span><span>Authorised by: ___________________</span></div>
     </body></html>`);
     w.document.close();
   };
@@ -1524,25 +1313,14 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             <button onClick={downloadESIXLS} style={btn("#1a6b1a","white",true)}>⬇️ ESI Upload XLS</button>
           </div>
         </div>
-
-        {/* Summary boxes */}
         <div style={{padding:"12px 16px",display:"flex",gap:12,flexWrap:"wrap"}}>
-          {[
-            {label:"Eligible Staff",val:pfRows.length,unit:"employees",bg:"#e8f0ff",tc:"#1a3d6b"},
-            {label:"Total Gross",val:`₹${fi(totGross)}`,bg:"#fdf5e8",tc:T.maroon},
-            {label:"PF Basis (70%)",val:`₹${fi(totBasis)}`,bg:"#edf5ff",tc:"#1a3d6b"},
-            {label:"Total PF (12%)",val:`₹${fi(totPF)}`,bg:"#dbeafe",tc:"#1e3a8a"},
-            {label:"Total ESI (0.75%)",val:`₹${fi(totESI)}`,bg:"#dcfce7",tc:"#14532d"},
-            {label:"Grand Total",val:`₹${fi(totPF+totESI)}`,bg:"#1a3d6b",tc:"white"},
-          ].map(x=>(
+          {[{label:"Eligible Staff",val:pfRows.length,unit:"employees",bg:"#e8f0ff",tc:"#1a3d6b"},{label:"Total Gross",val:`₹${fi(totGross)}`,bg:"#fdf5e8",tc:T.maroon},{label:"PF Basis (70%)",val:`₹${fi(totBasis)}`,bg:"#edf5ff",tc:"#1a3d6b"},{label:"Total PF (12%)",val:`₹${fi(totPF)}`,bg:"#dbeafe",tc:"#1e3a8a"},{label:"Total ESI (0.75%)",val:`₹${fi(totESI)}`,bg:"#dcfce7",tc:"#14532d"},{label:"Grand Total",val:`₹${fi(totPF+totESI)}`,bg:"#1a3d6b",tc:"white"}].map(x=>(
             <div key={x.label} style={{background:x.bg,borderRadius:8,padding:"10px 16px",textAlign:"center",minWidth:110}}>
               <div style={{fontSize:9,color:x.tc==="white"?"#aac4ff":T.muted,fontWeight:700,textTransform:"uppercase"}}>{x.label}</div>
               <div style={{fontSize:18,fontWeight:900,color:x.tc,marginTop:2}}>{x.val}</div>
             </div>
           ))}
         </div>
-
-        {/* Per-department breakdown */}
         <div style={{padding:"0 16px 12px"}}>
           <div style={{fontSize:11,color:T.muted,fontWeight:700,marginBottom:6}}>BY DEPARTMENT</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1555,8 +1333,6 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
             })}
           </div>
         </div>
-
-        {/* Full register table */}
         <div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",width:"100%"}}>
             <thead><tr>
@@ -1572,9 +1348,7 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
               <th style={{...thS,background:"#6b1a1a"}}>Total</th>
             </tr></thead>
             <tbody>{allRows.map((s,i)=>{
-              const basis=r2(s.baseSal*0.70);
-              const ee=r2(basis*0.0833);
-              const er=r2(s.pfAmt-ee);
+              const basis=r2(s.baseSal*0.70);const ee=r2(basis*0.0833);const er=r2(s.pfAmt-ee);
               const dept=depts.find(d=>d.id===s.emp.deptId);
               return <tr key={s.emp.id} style={{background:i%2===0?T.white:"#f0f5ff"}}>
                 <td style={{...tdS,color:T.muted}}>{i+1}</td>
@@ -1603,171 +1377,120 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
         </div>
       </div>
 
-        {/* ── Direct PF/ESI Number Upload ── */}
-        <div style={card}>
-          <div style={{...sec,background:"#4a2800"}}>
-            <span>📋 Upload PF & ESI Account Numbers</span>
-            <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Excel with Name · UAN · ESI Number → saves both to employee master</span>
-          </div>
-          <div style={{padding:16}}>
-            <div style={{fontSize:12,color:T.muted,marginBottom:10}}>
-              Upload an Excel file with columns: <b>Name</b>, <b>UAN</b>, <b>ESI Number</b> (any column order, app detects by header name). All three are optional per row — only non-blank values are saved.
-            </div>
-            <div style={{fontSize:11,color:T.muted,background:T.saffronPale,padding:10,borderRadius:6,marginBottom:14}}>
-              <b>Expected format:</b> Row 1 = headers (Name / UAN / ESI No. or similar), Row 2+ = data. The app matches employees by name.
-            </div>
-            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
-              <input ref={acctUploadRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
-                onChange={e=>{if(e.target.files[0])importAcctNumbers(e.target.files[0]);e.target.value="";}}/>
-              <button onClick={()=>acctUploadRef.current.click()} style={{...btn("#4a2800","white"),fontSize:13}}>
-                📂 Upload Account Numbers File
-              </button>
-              {acctResult&&<div style={{fontSize:12,fontWeight:700,color:acctResult.saved>0?"#14532d":"#7f1d1d"}}>
-                ✅ {acctResult.saved} employees updated · {acctResult.notFound} not matched
-              </div>}
-            </div>
-            {acctResult&&acctResult.details.length>0&&(
-              <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
-                <thead><tr>
-                  <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Our Employee</th>
-                  <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Matched As</th>
-                  <th style={{...thS,background:"#1a3d6b",minWidth:130}}>UAN</th>
-                  <th style={{...thS,background:"#145214",minWidth:130}}>ESI Number</th>
-                  <th style={{...thS,background:"#4a2800"}}>Status</th>
-                </tr></thead>
-                <tbody>{acctResult.details.map((d,i)=>(
-                  <tr key={i} style={{background:i%2===0?T.white:"#fdf8f0"}}>
-                    <td style={tdL}><b>{d.ourName}</b></td>
-                    <td style={{...tdL,color:T.muted,fontSize:10}}>{d.extName}</td>
-                    <td style={{...tdS,fontFamily:"monospace",color:"#1a3d6b"}}>{d.uan||"—"}</td>
-                    <td style={{...tdS,fontFamily:"monospace",color:"#145214"}}>{d.esino||"—"}</td>
-                    <td style={{...tdS,fontWeight:700,color:d.status==="saved"?"#14532d":d.status==="notfound"?"#7f1d1d":T.muted}}>
-                      {d.status==="saved"?"✅ Updated":d.status==="notfound"?"❌ Not found":"—"}
-                    </td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-          </div>
+      <div style={card}>
+        <div style={{...sec,background:"#4a2800"}}>
+          <span>📋 Upload PF & ESI Account Numbers</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Excel with Name · UAN · ESI Number → saves both to employee master</span>
         </div>
-
-        {/* ── Import UANs from consolidated file ── */}
-        <div style={card}>
-          <div style={{...sec,background:"#1a3d6b"}}>
-            <span>🔑 Import UANs from Consolidated File</span>
-            <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Upload the consolidated Trust PF file → matches our employees by name → saves UANs</span>
+        <div style={{padding:16}}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:10}}>Upload an Excel file with columns: <b>Name</b>, <b>UAN</b>, <b>ESI Number</b> (any column order).</div>
+          <div style={{fontSize:11,color:T.muted,background:T.saffronPale,padding:10,borderRadius:6,marginBottom:14}}><b>Expected format:</b> Row 1 = headers, Row 2+ = data. App matches employees by name.</div>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+            <input ref={acctUploadRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+              onChange={e=>{if(e.target.files[0])importAcctNumbers(e.target.files[0]);e.target.value="";}}/>
+            <button onClick={()=>acctUploadRef.current.click()} style={{...btn("#4a2800","white"),fontSize:13}}>📂 Upload Account Numbers File</button>
+            {acctResult&&<div style={{fontSize:12,fontWeight:700,color:acctResult.saved>0?"#14532d":"#7f1d1d"}}>✅ {acctResult.saved} employees updated · {acctResult.notFound} not matched</div>}
           </div>
-          <div style={{padding:16}}>
-            <div style={{fontSize:12,color:T.muted,marginBottom:12}}>
-              Upload the final consolidated Trust PF file. The app will scan all rows, match our employees by name, and save their UAN numbers to the employee master — ready for next month's PF upload XLS.
-            </div>
-            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
-              <input ref={uanImportRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
-                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],false);e.target.value="";}}/>
-              <input ref={uanForceRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
-                onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],true);e.target.value="";}}/>
-              <button onClick={()=>uanImportRef.current.click()} style={{...btn("#1a3d6b","white"),fontSize:13}}>
-                📂 Upload Consolidated PF File
-              </button>
-              <button onClick={()=>uanForceRef.current.click()} style={{...btn("#7f1d1d","white",true),fontSize:12}}>
-                🔄 Force Re-import (overwrite existing UANs)
-              </button>
-              {uanImportResult&&<div style={{fontSize:12,color:uanImportResult.forced?"#7f1d1d":"#14532d",fontWeight:700}}>
-                {uanImportResult.forced?"🔄":"✅"} {uanImportResult.saved} UANs saved · {uanImportResult.skipped} unchanged · {uanImportResult.notFound} not matched
-              </div>}
-            </div>
-            {uanImportResult&&uanImportResult.details.length>0&&(
-              <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
-                <thead><tr>
-                  <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Our Employee</th>
-                  <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Matched in file as</th>
-                  <th style={{...thS,background:"#1a3d6b"}}>UAN</th>
-                  <th style={{...thS,background:"#1a3d6b"}}>Status</th>
-                </tr></thead>
-                <tbody>{uanImportResult.details.map((d,i)=>(
-                  <tr key={i} style={{background:i%2===0?T.white:"#f0f5ff"}}>
-                    <td style={tdL}><b>{d.ourName}</b></td>
-                    <td style={{...tdL,color:T.muted}}>{d.extName}</td>
-                    <td style={{...tdS,fontFamily:"monospace"}}>{d.uan}</td>
-                    <td style={{...tdS,color:d.status==="saved"?"#14532d":d.status==="existing"?"#1a3d6b":"#7f1d1d",fontWeight:700}}>
-                      {d.status==="saved"?"✅ Saved":d.status==="existing"?"✓ Already had":d.status==="notfound"?"❌ Not found":""}
-                    </td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-          </div>
+          {acctResult&&acctResult.details.length>0&&(
+            <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+              <thead><tr>
+                <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Our Employee</th>
+                <th style={{...thS,textAlign:"left",background:"#4a2800"}}>Matched As</th>
+                <th style={{...thS,background:"#1a3d6b",minWidth:130}}>UAN</th>
+                <th style={{...thS,background:"#145214",minWidth:130}}>ESI Number</th>
+                <th style={{...thS,background:"#4a2800"}}>Status</th>
+              </tr></thead>
+              <tbody>{acctResult.details.map((d,i)=>(
+                <tr key={i} style={{background:i%2===0?T.white:"#fdf8f0"}}>
+                  <td style={tdL}><b>{d.ourName}</b></td>
+                  <td style={{...tdL,color:T.muted,fontSize:10}}>{d.extName}</td>
+                  <td style={{...tdS,fontFamily:"monospace",color:"#1a3d6b"}}>{d.uan||"—"}</td>
+                  <td style={{...tdS,fontFamily:"monospace",color:"#145214"}}>{d.esino||"—"}</td>
+                  <td style={{...tdS,fontWeight:700,color:d.status==="saved"?"#14532d":d.status==="notfound"?"#7f1d1d":T.muted}}>
+                    {d.status==="saved"?"✅ Updated":d.status==="notfound"?"❌ Not found":"—"}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
         </div>
+      </div>
 
-      {/* Consolidation section */}
+      <div style={card}>
+        <div style={{...sec,background:"#1a3d6b"}}>
+          <span>🔑 Import UANs from Consolidated File</span>
+          <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Upload the consolidated Trust PF file → matches our employees by name → saves UANs</span>
+        </div>
+        <div style={{padding:16}}>
+          <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Upload the final consolidated Trust PF file. The app will scan all rows, match employees by name, and save UAN numbers.</div>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+            <input ref={uanImportRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
+              onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],false);e.target.value="";}}/>
+            <input ref={uanForceRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
+              onChange={e=>{if(e.target.files[0])importUANs(e.target.files[0],true);e.target.value="";}}/>
+            <button onClick={()=>uanImportRef.current.click()} style={{...btn("#1a3d6b","white"),fontSize:13}}>📂 Upload Consolidated PF File</button>
+            <button onClick={()=>uanForceRef.current.click()} style={{...btn("#7f1d1d","white",true),fontSize:12}}>🔄 Force Re-import (overwrite existing UANs)</button>
+            {uanImportResult&&<div style={{fontSize:12,color:uanImportResult.forced?"#7f1d1d":"#14532d",fontWeight:700}}>
+              {uanImportResult.forced?"🔄":"✅"} {uanImportResult.saved} UANs saved · {uanImportResult.skipped} unchanged · {uanImportResult.notFound} not matched
+            </div>}
+          </div>
+          {uanImportResult&&uanImportResult.details.length>0&&(
+            <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+              <thead><tr>
+                <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Our Employee</th>
+                <th style={{...thS,textAlign:"left",background:"#1a3d6b"}}>Matched in file as</th>
+                <th style={{...thS,background:"#1a3d6b"}}>UAN</th>
+                <th style={{...thS,background:"#1a3d6b"}}>Status</th>
+              </tr></thead>
+              <tbody>{uanImportResult.details.map((d,i)=>(
+                <tr key={i} style={{background:i%2===0?T.white:"#f0f5ff"}}>
+                  <td style={tdL}><b>{d.ourName}</b></td>
+                  <td style={{...tdL,color:T.muted}}>{d.extName}</td>
+                  <td style={{...tdS,fontFamily:"monospace"}}>{d.uan}</td>
+                  <td style={{...tdS,color:d.status==="saved"?"#14532d":d.status==="existing"?"#1a3d6b":"#7f1d1d",fontWeight:700}}>
+                    {d.status==="saved"?"✅ Saved":d.status==="existing"?"✓ Already had":d.status==="notfound"?"❌ Not found":""}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       <div style={card}>
         <div style={{...sec,background:"#2d4a1a"}}>
           <span>🔀 Consolidate with Other Institution's PF File</span>
           <span style={{fontSize:11,opacity:0.7,fontWeight:400}}>Upload their Excel → app fills blanks from our payroll → download merged file</span>
         </div>
         <div style={{padding:16}}>
-
-          {/* Upload area */}
           <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
             <input ref={extRef} type="file" accept=".xlsx,.xls" style={{display:"none"}}
               onChange={e=>{if(e.target.files[0])loadExtFile(e.target.files[0]);}}/>
-            <button onClick={()=>extRef.current.click()} style={{...btn("#2d4a1a","white"),fontSize:13}}>
-              📂 Upload Institution Excel
-            </button>
-            {extFile&&<div style={{fontSize:12,color:"#2d4a1a",fontWeight:700}}>
-              ✅ {extFile.name} — {extFile.blankRows.length} blank rows found
-            </div>}
+            <button onClick={()=>extRef.current.click()} style={{...btn("#2d4a1a","white"),fontSize:13}}>📂 Upload Institution Excel</button>
+            {extFile&&<div style={{fontSize:12,color:"#2d4a1a",fontWeight:700}}>✅ {extFile.name} — {extFile.blankRows.length} blank rows found</div>}
           </div>
-
-          {/* Preview of blank rows */}
           {extFile&&extFile.blankRows.length>0&&!mergeResult&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:700,color:T.muted,marginBottom:6}}>
-                Blank rows in uploaded file ({extFile.blankRows.length} employees):
-              </div>
+              <div style={{fontSize:11,fontWeight:700,color:T.muted,marginBottom:6}}>Blank rows in uploaded file ({extFile.blankRows.length} employees):</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-                {extFile.blankRows.map((br,i)=>(
-                  <span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>
-                    {br.name}
-                  </span>
-                ))}
+                {extFile.blankRows.map((br,i)=>(<span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>{br.name}</span>))}
               </div>
-              <button onClick={doMerge} style={{...btn("#1a5a00","white"),fontWeight:800,fontSize:13}}>
-                🔀 Match &amp; Merge with Our Payroll
-              </button>
+              <button onClick={doMerge} style={{...btn("#1a5a00","white"),fontWeight:800,fontSize:13}}>🔀 Match &amp; Merge with Our Payroll</button>
             </div>
           )}
-
-          {/* Merge result */}
           {mergeResult&&(
             <div>
-              {/* Summary */}
               <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-                <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#14532d",fontWeight:700}}>MATCHED</div>
-                  <div style={{fontSize:22,fontWeight:900,color:"#14532d"}}>{mergeResult.matched.length}</div>
-                </div>
-                <div style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#7f1d1d",fontWeight:700}}>NOT MATCHED</div>
-                  <div style={{fontSize:22,fontWeight:900,color:"#7f1d1d"}}>{mergeResult.unmatched.length}</div>
-                </div>
-                <div style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:8,padding:"10px 16px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#7a5c00",fontWeight:700}}>OUR STAFF NOT IN THEIR FILE</div>
-                  <div style={{fontSize:22,fontWeight:900,color:"#7a5c00"}}>{mergeResult.notInExt.length}</div>
-                </div>
-                <button onClick={downloadMerged} style={{...btn("#1a3d6b","white"),fontWeight:800,fontSize:14,alignSelf:"center",padding:"12px 24px"}}>
-                  ⬇️ Download Consolidated Excel
-                </button>
+                <div style={{background:"#dcfce7",border:"1px solid #86efac",borderRadius:8,padding:"10px 16px",textAlign:"center"}}><div style={{fontSize:10,color:"#14532d",fontWeight:700}}>MATCHED</div><div style={{fontSize:22,fontWeight:900,color:"#14532d"}}>{mergeResult.matched.length}</div></div>
+                <div style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 16px",textAlign:"center"}}><div style={{fontSize:10,color:"#7f1d1d",fontWeight:700}}>NOT MATCHED</div><div style={{fontSize:22,fontWeight:900,color:"#7f1d1d"}}>{mergeResult.unmatched.length}</div></div>
+                <div style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:8,padding:"10px 16px",textAlign:"center"}}><div style={{fontSize:10,color:"#7a5c00",fontWeight:700}}>OUR STAFF NOT IN THEIR FILE</div><div style={{fontSize:22,fontWeight:900,color:"#7a5c00"}}>{mergeResult.notInExt.length}</div></div>
+                <button onClick={downloadMerged} style={{...btn("#1a3d6b","white"),fontWeight:800,fontSize:14,alignSelf:"center",padding:"12px 24px"}}>⬇️ Download Consolidated Excel</button>
               </div>
-
-              {/* Matched list with UAN editing */}
               {mergeResult.matched.length>0&&(
                 <div style={{marginBottom:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                     <div style={{fontSize:11,fontWeight:700,color:"#14532d"}}>✅ Matched & filled ({mergeResult.matched.length} employees):</div>
-                    <button onClick={()=>saveUANs(emps)} style={{...btn("#1a3d6b","white",true),fontSize:12}}>
-                      💾 Save UANs to Employee Master
-                    </button>
+                    <button onClick={()=>saveUANs(emps)} style={{...btn("#1a3d6b","white",true),fontSize:12}}>💾 Save UANs to Employee Master</button>
                   </div>
                   <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
                     <thead><tr>
@@ -1775,63 +1498,32 @@ function PFESITab({settle,depts,month,year,pf,esi,write,d,mkey,emps,showToast}){
                       <th style={{...thS,textAlign:"left",background:"#14532d"}}>Our Employee</th>
                       <th style={{...thS,background:"#14532d"}}>Gross</th>
                       <th style={{...thS,background:"#14532d"}}>PF</th>
-                      <th style={{...thS,background:"#1a3d6b",minWidth:150}}>UAN (from their file → save to our master)</th>
+                      <th style={{...thS,background:"#1a3d6b",minWidth:150}}>UAN</th>
                     </tr></thead>
                     <tbody>{mergeResult.matched.map((m,i)=>(
                       <tr key={i} style={{background:i%2===0?"#f0faf4":"white"}}>
-                        <td style={tdL}>{m.extName}</td>
-                        <td style={tdL}>{m.ourName}</td>
-                        <td style={tdS}>₹{fi(m.gross)}</td>
-                        <td style={tdS}>₹{fi(m.pf)}</td>
+                        <td style={tdL}>{m.extName}</td><td style={tdL}>{m.ourName}</td>
+                        <td style={tdS}>₹{fi(m.gross)}</td><td style={tdS}>₹{fi(m.pf)}</td>
                         <td style={{...tdS,padding:"4px 6px"}}>
                           {m.existingUan
                             ? <span style={{fontFamily:"monospace",color:"#14532d",fontWeight:700}}>{m.existingUan} ✓</span>
-                            : <input
-                                type="text"
-                                value={uanEdits[m.empId]||m.extUan||""}
-                                onChange={e=>setUanEdits(p=>({...p,[m.empId]:e.target.value}))}
-                                placeholder="Enter UAN"
-                                style={{...inp(140),fontFamily:"monospace",fontSize:11,padding:"3px 6px",
-                                  background:uanEdits[m.empId]?"#e8f5e9":"#fff8dc"}}
-                              />
+                            : <input type="text" value={uanEdits[m.empId]||m.extUan||""} onChange={e=>setUanEdits(p=>({...p,[m.empId]:e.target.value}))} placeholder="Enter UAN"
+                                style={{...inp(140),fontFamily:"monospace",fontSize:11,padding:"3px 6px",background:uanEdits[m.empId]?"#e8f5e9":"#fff8dc"}}/>
                           }
                         </td>
                       </tr>
                     ))}</tbody>
                   </table>
-                  <div style={{fontSize:11,color:T.muted,marginTop:6}}>
-                    💡 Green = already saved · Yellow = pre-filled from their file, confirm and click Save UANs
-                  </div>
                 </div>
               )}
-
-              {/* Unmatched */}
-              {mergeResult.unmatched.length>0&&(
-                <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#7f1d1d",marginBottom:4}}>
-                    ❌ Could not match — fill manually in downloaded file:
-                  </div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {mergeResult.unmatched.map((n,i)=>(
-                      <span key={i} style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Not in ext */}
-              {mergeResult.notInExt.length>0&&(
-                <div>
-                  <div style={{fontSize:11,fontWeight:700,color:"#7a5c00",marginBottom:4}}>
-                    ⚠️ Our employees not found in their file (may need separate row):
-                  </div>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    {mergeResult.notInExt.map((n,i)=>(
-                      <span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {mergeResult.unmatched.length>0&&(<div style={{marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#7f1d1d",marginBottom:4}}>❌ Could not match — fill manually in downloaded file:</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{mergeResult.unmatched.map((n,i)=>(<span key={i} style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>))}</div>
+              </div>)}
+              {mergeResult.notInExt.length>0&&(<div>
+                <div style={{fontSize:11,fontWeight:700,color:"#7a5c00",marginBottom:4}}>⚠️ Our employees not found in their file:</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{mergeResult.notInExt.map((n,i)=>(<span key={i} style={{background:"#fff3cd",border:"1px solid #f0c040",borderRadius:5,padding:"2px 8px",fontSize:11}}>{n}</span>))}</div>
+              </div>)}
             </div>
           )}
         </div>
@@ -1918,9 +1610,6 @@ function PayslipTab({settle,depts,activeDept,month,year}){
 function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
   const dept=depts.find(dd=>dd.id===activeDept);
   const deptDbAcc=d[`dbAcc_${activeDept}`]||"";
-  const commonDbAcc=d[`dbAcc_common`]||"";
-
-  // Departments that share the common account (not marked as separate)
   const commonDepts=depts.filter(dd=>!dd.separateBank);
   const commonRows=settle.filter(s=>commonDepts.some(dd=>dd.id===s.emp.deptId)&&s.net>0&&s.emp.acc);
   const deptRows=settle.filter(s=>s.emp.deptId===activeDept&&s.net>0&&s.emp.acc);
@@ -1933,16 +1622,7 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
     script.onload=()=>{
       const XLSX=window.XLSX;
       const narr=`Salary ${MONTHS[month].substr(0,3)}${String(year).substr(2)}`;
-      const header=[
-        "Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))",
-        "Amount (₹)\n(Should not be more than 15 digit including decimals and paise)",
-        "Debit Account no\nShould be exactly 12 digit",
-        "IFSC (Always 11 character alphanumeric and 5th character always 0 (zero)) (For ICICI bank accounts keep it blank)",
-        "Beneficiary Account No (Max length for other bank 34 character alphanumeric and for ICICI Bank 12 digit number )",
-        "Beneficiary Name (Max length 32 Character) (No Special Character is allowed but Space is allowed)",
-        "Remarks for Client\n(should not be more than 21 characters)",
-        "Remarks for Beneficiary\n(should not be more than 30 characters)"
-      ];
+      const header=["Transaction type \n(Within Bank (WIB)/\nNEFT (NFT)/\nRTGS (RTG)/\nIMPS (IFC))","Amount (₹)\n(Should not be more than 15 digit including decimals and paise)","Debit Account no\nShould be exactly 12 digit","IFSC (Always 11 character alphanumeric and 5th character always 0 (zero)) (For ICICI bank accounts keep it blank)","Beneficiary Account No (Max length for other bank 34 character alphanumeric and for ICICI Bank 12 digit number )","Beneficiary Name (Max length 32 Character) (No Special Character is allowed but Space is allowed)","Remarks for Client\n(should not be more than 21 characters)","Remarks for Beneficiary\n(should not be more than 30 characters)"];
       const dataRows=rows.map(s=>{
         const txnType=(!s.emp.ifsc||s.emp.ifsc.toUpperCase().startsWith("ICIC"))?"WIB":"NFT";
         const ifsc=txnType==="WIB"?"":s.emp.ifsc;
@@ -1951,8 +1631,7 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
       });
       const ws=XLSX.utils.aoa_to_sheet([header,...dataRows]);
       ws["!cols"]=[{wch:18},{wch:20},{wch:20},{wch:30},{wch:34},{wch:32},{wch:22},{wch:30}];
-      const wb2=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
+      const wb2=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb2,ws,"Sheet1");
       XLSX.writeFile(wb2,filename,{bookType:"xls"});
     };
     document.head.appendChild(script);
@@ -1960,8 +1639,6 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
-
-      {/* ── Combined Upload (all non-separate depts) ── */}
       <div style={card}>
         <div style={{...sec,background:"#1a3d6b"}}>
           <span>🏦 Combined Bank Upload — {MONTHS[month]} {year}</span>
@@ -1970,9 +1647,9 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
         <div style={{padding:14,display:"flex",gap:14,alignItems:"flex-end",flexWrap:"wrap"}}>
           <div>
             <label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:3}}>COMMON DEBIT ACCOUNT</label>
-            <input value={commonDbAcc} onChange={e=>write({dbAcc_common:e.target.value})} style={{...inp(220),fontFamily:"monospace"}} placeholder="Shared institution account number"/>
+            <input value={d[`dbAcc_common`]||""} onChange={e=>write({dbAcc_common:e.target.value})} style={{...inp(220),fontFamily:"monospace"}} placeholder="Shared institution account number"/>
           </div>
-          <button onClick={()=>buildXLS(commonRows,commonDbAcc,`PAB_Combined_${MONTHS[month]}_${year}.xls`)} style={{...btn("#1a3d6b","white"),fontSize:13,fontWeight:800}}>⬇️ Download Combined XLS</button>
+          <button onClick={()=>buildXLS(commonRows,d[`dbAcc_common`]||"",`PAB_Combined_${MONTHS[month]}_${year}.xls`)} style={{...btn("#1a3d6b","white"),fontSize:13,fontWeight:800}}>⬇️ Download Combined XLS</button>
           <div style={{marginLeft:"auto",background:"#e8f0ff",border:"1px solid #b0c4f0",borderRadius:8,padding:"10px 18px",textAlign:"center"}}>
             <div style={{fontSize:10,color:T.muted,fontWeight:700}}>COMBINED TOTAL</div>
             <div style={{fontSize:22,fontWeight:900,color:"#1a3d6b"}}>₹{fi(commonTotal)}</div>
@@ -1993,7 +1670,6 @@ function BankTab({settle,depts,activeDept,month,year,dbAcc,write,d}){
         </div>
       </div>
 
-      {/* ── Per-Department Upload (for separate account depts) ── */}
       <div style={card}>
         <div style={sec}>
           <span>🏦 {dept?.name} — {MONTHS[month]} {year}</span>
@@ -2044,21 +1720,131 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
   const dept=depts.find(x=>x.id===activeDept);
   const de=emps.filter(e=>e.deptId===activeDept);
   const [ed,setEd]=useState(null);
+  const [xferEmp,setXferEmp]=useState(null); // {emp, newDeptId}
   const {year,month}=d;
   const mkey=`${year}_${month}`;
+
+  // ── Scan all month snapshots for employees missing from live master ──
+  const lostEmps=useMemo(()=>{
+    const currentIds=new Set(emps.map(e=>e.id));
+    const lost={};
+    Object.keys(d).forEach(key=>{
+      if(!key.startsWith('emps_'))return;
+      const snap=d[key];
+      if(!Array.isArray(snap))return;
+      snap.forEach(emp=>{
+        if(!currentIds.has(emp.id)&&!lost[emp.id]){
+          // Only surface employees whose deptId matches a known dept
+          if(depts.some(dd=>dd.id===emp.deptId)){
+            lost[emp.id]={...emp,_foundIn:key};
+          }
+        }
+      });
+    });
+    return Object.values(lost);
+  },[emps,d,depts]);
+
+  const restoreEmp=(emp)=>{
+    const {_foundIn,...clean}=emp;
+    const newEmps=[...emps,clean];
+    write({emps:newEmps,[`emps_${mkey}`]:newEmps});
+  };
+
   const saveEmp=()=>{
     if(!ed.name.trim()||!ed.rate)return;
     let newEmps,newNid=nid;
     if(ed.id===0){newEmps=[...emps,{...ed,id:nid,deptId:activeDept}];newNid=nid+1;}
     else newEmps=emps.map(e=>e.id===ed.id?{...ed}:e);
-    // Only update current month snapshot — past months are frozen
-    const today=new Date();
-    // Always update live master AND the currently viewed month's snapshot
     write({emps:newEmps,nid:newNid,[`emps_${mkey}`]:newEmps});setEd(null);
   };
+
+  // ── Transfer employee to a new dept, retroactively preserving history ──
+  const doTransfer=()=>{
+    if(!xferEmp?.newDeptId)return;
+    const {emp,newDeptId}=xferEmp;
+    const oldDeptId=emp.deptId;
+    // Update live master with new dept
+    const newEmps=emps.map(e=>e.id===emp.id?{...e,deptId:newDeptId}:e);
+    const patch={emps:newEmps,[`emps_${mkey}`]:newEmps};
+    // For every past month that has NO frozen snapshot, create one now using the OLD dept.
+    // This prevents those months from falling back to live emps (which has the new dept).
+    for(let i=1;i<=24;i++){
+      let bm=month-i,by=year;
+      while(bm<=0){bm+=12;by--;}
+      const bmkey=`${by}_${bm}`;
+      if(!d[`emps_${bmkey}`]){
+        // Freeze this past month with old dept for the transferred employee
+        patch[`emps_${bmkey}`]=newEmps.map(e=>e.id===emp.id?{...e,deptId:oldDeptId}:e);
+      }
+    }
+    write(patch);
+    setXferEmp(null);
+  };
+
   return(
     <div style={card}>
+
+      {/* ── Transfer Dialog ── */}
+      {xferEmp&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(74,14,14,0.7)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:T.white,borderRadius:14,padding:28,width:460,maxWidth:"95vw",boxShadow:"0 20px 60px rgba(0,0,0,0.4)"}}>
+            <div style={{textAlign:"center",fontSize:36,marginBottom:8}}>🔄</div>
+            <div style={{fontWeight:800,fontSize:16,color:T.maroon,textAlign:"center",marginBottom:4}}>Transfer Employee</div>
+            <div style={{fontSize:13,color:T.muted,textAlign:"center",marginBottom:16}}>
+              Moving <b style={{color:T.text}}>{xferEmp.emp.name}</b> from <b style={{color:T.danger}}>{depts.find(dd=>dd.id===xferEmp.emp.deptId)?.name}</b>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>TRANSFER TO DEPARTMENT</label>
+              <select value={xferEmp.newDeptId||""} onChange={e=>setXferEmp(p=>({...p,newDeptId:e.target.value}))} style={inp()}>
+                <option value="">— Select destination department —</option>
+                {depts.filter(dd=>dd.id!==xferEmp.emp.deptId).map(dd=>(
+                  <option key={dd.id} value={dd.id}>{dd.name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{background:"#fff8e8",border:"1px solid #e0c060",borderRadius:8,padding:12,fontSize:12,color:"#5a4000",lineHeight:1.8,marginBottom:18}}>
+              ⚠️ <b>Effective from {MONTHS[month]} {year}.</b><br/>
+              All earlier months will remain in <b>{depts.find(dd=>dd.id===xferEmp.emp.deptId)?.name}</b>.<br/>
+              Past months without a saved snapshot will be pinned retroactively to preserve correct history.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <button onClick={()=>setXferEmp(null)} style={btn("#e8d5b0",T.text)}>Cancel</button>
+              <button onClick={doTransfer} disabled={!xferEmp.newDeptId}
+                style={{...btn("#1a5a00","white"),fontWeight:800,fontSize:13,padding:"8px 22px",opacity:xferEmp.newDeptId?1:0.4}}>
+                ✅ Confirm Transfer → {xferEmp.newDeptId?depts.find(dd=>dd.id===xferEmp.newDeptId)?.name:""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={sec}><span>👥 Employees — {dept?.name}</span><button onClick={()=>setEd({id:0,deptId:activeDept,name:"",rate:"",rent:"",uan:"",esino:"",fixed:false,daily:false,pfEsi:false,bankName:"",acc:"",ifsc:""})} style={btn(T.saffron,T.maroonD,true)}>+ Add</button></div>
+
+      {/* ── Lost Employee Recovery ── */}
+      {lostEmps.length>0&&(
+        <div style={{padding:14,background:"#fff8e8",borderBottom:`2px solid ${T.saffron}`}}>
+          <div style={{fontWeight:800,color:"#5a3000",fontSize:13,marginBottom:6}}>
+            ⚠️ {lostEmps.length} Employee(s) Found in Past Records but Missing from Current List
+          </div>
+          <div style={{fontSize:11,color:"#7a5000",marginBottom:10}}>
+            These employees appear in earlier month snapshots but are not in the current employee master. They may have been accidentally deleted. Click ↩ Restore to bring them back.
+          </div>
+          {lostEmps.map(emp=>{
+            const empDept=depts.find(dd=>dd.id===emp.deptId);
+            const foundMonth=emp._foundIn.replace('emps_','').replace('_',' Month ');
+            return(
+              <div key={emp.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,padding:"8px 12px",background:"white",borderRadius:6,border:"1px solid #e0c060",flexWrap:"wrap"}}>
+                <div style={{fontWeight:700,fontSize:13,flex:1,minWidth:140}}>{emp.name}</div>
+                <div style={{fontSize:11,color:T.muted}}>Dept: <b>{empDept?.name||emp.deptId}</b></div>
+                <div style={{fontSize:11,color:T.muted}}>Last seen in: {foundMonth}</div>
+                <div style={{fontSize:11,color:T.muted}}>Rate: ₹{fi(emp.rate)}</div>
+                <button onClick={()=>restoreEmp(emp)} style={{...btn(T.maroon,"white",true),padding:"5px 14px"}}>↩ Restore</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {ed&&<div style={{padding:16,background:T.saffronPale,borderBottom:`1px solid ${T.border}`}}>
         <div style={{fontWeight:700,color:T.maroon,marginBottom:12,fontSize:13}}>{ed.id===0?"New Employee":"Edit Employee"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
@@ -2090,8 +1876,18 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
           <button onClick={()=>setEd(null)} style={btn("#e8d5b0",T.text)}>Cancel</button>
         </div>
       </div>}
+
       <table style={{borderCollapse:"collapse",width:"100%"}}>
-        <thead><tr><th style={{...thS,textAlign:"left"}}>Name</th><th style={thS}>Type</th><th style={thS}>Rate/Month</th><th style={thS}>Daily Rate</th><th style={thS}>Rent Ded.</th><th style={{...thS,textAlign:"left"}}>Account</th><th style={{...thS,textAlign:"left"}}>IFSC</th><th style={thS}>Actions</th></tr></thead>
+        <thead><tr>
+          <th style={{...thS,textAlign:"left"}}>Name</th>
+          <th style={thS}>Type</th>
+          <th style={thS}>Rate/Month</th>
+          <th style={thS}>Daily Rate</th>
+          <th style={thS}>Rent Ded.</th>
+          <th style={{...thS,textAlign:"left"}}>Account</th>
+          <th style={{...thS,textAlign:"left"}}>IFSC</th>
+          <th style={thS}>Actions</th>
+        </tr></thead>
         <tbody>{de.map((e,i)=>(
           <tr key={e.id} style={{background:i%2===0?T.white:"#fdf5e8"}}>
             <td style={tdL}><b>{e.name}</b></td>
@@ -2111,9 +1907,10 @@ function EmpsTab({emps,depts,activeDept,nid,write,d}){
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.acc||"—"}</td>
             <td style={{...tdL,fontFamily:"monospace",fontSize:12}}>{e.ifsc||"—"}</td>
             <td style={{...tdS,padding:"4px 8px"}}>
-              <div style={{display:"flex",gap:5,justifyContent:"center"}}>
-                <button onClick={()=>setEd({...e})} style={btn(T.maroonL,"white",true)}>✏️</button>
-                <button onClick={()=>{if(window.confirm("Remove?"))write({emps:emps.filter(x=>x.id!==e.id)});}} style={btn(T.danger,"white",true)}>🗑️</button>
+              <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                <button onClick={()=>setEd({...e})} style={btn(T.maroonL,"white",true)} title="Edit">✏️</button>
+                <button onClick={()=>setXferEmp({emp:e,newDeptId:""})} style={btn("#1a3d6b","white",true)} title="Transfer to another department">🔄</button>
+                <button onClick={()=>{if(window.confirm(`Remove ${e.name}? This cannot be undone.`))write({emps:emps.filter(x=>x.id!==e.id)});}} style={btn(T.danger,"white",true)} title="Delete">🗑️</button>
               </div>
             </td>
           </tr>
