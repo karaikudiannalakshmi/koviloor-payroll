@@ -158,9 +158,9 @@ function Main(){
     return ()=>clearInterval(t);
   },[authReady, role]);
 
-  const write=(patch)=>{
+  const write=(patchOrFn)=>{
     setD(prev=>{
-      const next={...prev,...patch};
+      const next=typeof patchOrFn==='function'?patchOrFn(prev):{...prev,...patchOrFn};
       lastWrite.current=Date.now();
       fbSet(next);
       return next;
@@ -249,9 +249,9 @@ function Main(){
   const pf=d[`pf_${mkey}`]||{};
   const esi=d[`esi_${mkey}`]||{};
   const ga=(eid,day)=>{const v=mattObj[`${eid}_${day}`];return v===undefined?null:v;};
-  const sa=(eid,day,v)=>write({[`att_${mkey}`]:{...mattObj,[`${eid}_${day}`]:v}});
+  const sa=(eid,day,v)=>write(prev=>({...prev,[`att_${mkey}`]:{...(prev[`att_${mkey}`]||{}),[`${eid}_${day}`]:v}}));
   const got=(eid,day)=>motObj[`${eid}_${day}`]??"";
-  const sot=(eid,day,v)=>write({[`ot_${mkey}`]:{...motObj,[`${eid}_${day}`]:v}});
+  const sot=(eid,day,v)=>write(prev=>({...prev,[`ot_${mkey}`]:{...(prev[`ot_${mkey}`]||{}),[`${eid}_${day}`]:v}}));
 
   const settle=useMemo(()=>monthEmps.map(emp=>{
     const isFixed=!!emp.fixed;
@@ -474,8 +474,8 @@ function AttTab({emps,depts,activeDept,days,year,month,ga,sa,got,sot,role,att,mk
   const de=emps.filter(e=>e.deptId===activeDept && (isOperator ? !e.fixed : true));
   const dept=depts.find(d=>d.id===activeDept);
   // markAll / clrAll now use 'att' prop (was: mattObj — undefined in this scope)
-  const markAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=1;});write({[`att_${mkey}`]:u});};
-  const clrAll=eid=>{const u={...att};days.forEach(d=>{u[`${eid}_${d}`]=0;});write({[`att_${mkey}`]:u});};
+  const markAll=eid=>write(prev=>{const u={...(prev[`att_${mkey}`]||{})};days.forEach(d=>{u[`${eid}_${d}`]=1;});return{...prev,[`att_${mkey}`]:u};});
+  const clrAll=eid=>write(prev=>{const u={...(prev[`att_${mkey}`]||{})};days.forEach(d=>{u[`${eid}_${d}`]=0;});return{...prev,[`att_${mkey}`]:u};});
   return(
     <div style={card}>
       <div style={sec}>
